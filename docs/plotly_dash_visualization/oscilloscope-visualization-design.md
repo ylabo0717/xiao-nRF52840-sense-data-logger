@@ -69,6 +69,106 @@ Data rate: ~25Hz via BLE, ~100Hz via USB Serial
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### System Architecture Diagram
+
+#### Overall System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    XIAO nRF52840 Oscilloscope System           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐    ┌─────────────────┐    ┌───────────────┐  │
+│  │   XIAO BLE   │    │  Data Reception │    │   Web Browser │  │
+│  │    Device    │───▶│     Thread      │    │   (Display)   │  │
+│  │              │    │   (Receiver)    │    │               │  │
+│  └──────────────┘    └─────────────────┘    └───────────────┘  │
+│        │                       │                      ▲        │
+│        │ BLE Data Stream       │                      │        │
+│        ▼                       ▼                      │        │
+│  ┌──────────────┐    ┌─────────────────┐              │        │
+│  │  ImuRow Data │    │  Thread-Safe    │              │        │
+│  │ (9 CSV fields)│───▶│ Circular Buffer │              │        │
+│  │   ~25Hz       │    │  (1000 samples) │              │        │
+│  └──────────────┘    └─────────────────┘              │        │
+│                               │                        │        │
+│                               ▼                        │        │
+│                    ┌─────────────────┐                 │        │
+│                    │   Dash Web App  │─────────────────┘        │
+│                    │ (Main Thread)   │                          │
+│                    │   Polling @15Hz │                          │
+│                    └─────────────────┘                          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Thread Architecture Detail
+
+```
+Thread 1: Data Reception (Async)          Thread 2: Web Application (Main)
+┌─────────────────────────────────┐       ┌──────────────────────────────┐
+│                                 │       │                              │
+│  ┌─────────────────────────┐    │       │  ┌────────────────────────┐  │
+│  │    BLE Data Source      │    │       │  │     Dash Server        │  │
+│  │                         │    │       │  │                        │  │
+│  │  async def start()      │    │       │  │  @app.callback         │  │
+│  │  async def get_data()   │    │       │  │  def update_plots()    │  │
+│  └─────────────────────────┘    │       │  └────────────────────────┘  │
+│              │                  │       │              ▲               │
+│              ▼                  │       │              │               │
+│  ┌─────────────────────────┐    │       │  ┌────────────────────────┐  │
+│  │   Data Processing       │    │       │  │    Plot Generation     │  │
+│  │                         │    │       │  │                        │  │
+│  │  parse_csv()           │    │       │  │  create_accel_plot()   │  │
+│  │  validate_data()       │    │       │  │  create_gyro_plot()    │  │
+│  └─────────────────────────┘    │       │  │  create_temp_plot()    │  │
+│              │                  │       │  │  create_audio_plot()   │  │
+│              ▼                  │       │  └────────────────────────┘  │
+│  ┌─────────────────────────┐    │       │              ▲               │
+│  │      Buffer Write       │    │       │              │               │
+│  │                         │    │       │  ┌────────────────────────┐  │
+│  │  buffer.append(row)     │◄──┼───────┼──┤     Buffer Read        │  │
+│  │  threading.RLock()      │    │       │  │                        │  │
+│  └─────────────────────────┘    │       │  │  buffer.get_recent()   │  │
+│                                 │       │  │  threading.RLock()     │  │
+└─────────────────────────────────┘       │  └────────────────────────┘  │
+                                          │                              │
+                                          └──────────────────────────────┘
+
+                    ┌─────────────────────────────┐
+                    │     Shared Resource         │
+                    │                             │
+                    │  ┌────────────────────────┐ │
+                    │  │   Circular Buffer      │ │
+                    │  │                        │ │
+                    │  │  collections.deque     │ │
+                    │  │  maxlen=1000           │ │
+                    │  │  threading.RLock()     │ │
+                    │  │                        │ │
+                    │  │  Methods:              │ │
+                    │  │  - append(row)         │ │
+                    │  │  - get_recent(count)   │ │
+                    │  │  - get_stats()         │ │
+                    │  └────────────────────────┘ │
+                    └─────────────────────────────┘
+```
+
+#### Data Flow Sequence
+
+```
+1. Data Acquisition
+   XIAO Device ──BLE──▶ BLE Receiver ──parse──▶ ImuRow Objects
+                                                      │
+2. Buffer Management                                  ▼
+   Data Reception Thread ──lock──▶ Circular Buffer ◄──lock── Web App Thread
+                                       │
+3. Web Interface                       ▼
+   Dash Callback ──poll(@15Hz)──▶ Buffer Read ──format──▶ Plotly Graphs
+                                                                  │
+4. Display                                                       ▼
+   Plotly Graphs ──render──▶ Web Browser ──display──▶ User Interface
+```
+
 ### Technical Specifications
 
 #### Data Flow
