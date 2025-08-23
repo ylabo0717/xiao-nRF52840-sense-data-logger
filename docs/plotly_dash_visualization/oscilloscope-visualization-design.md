@@ -8,13 +8,18 @@ This document outlines the design for a real-time oscilloscope-like visualizatio
 
 The receiver outputs CSV data with 9 fields:
 
-- `millis`: Timestamp in milliseconds
-- `ax`, `ay`, `az`: Accelerometer data (m/s²)
-- `gx`, `gy`, `gz`: Gyroscope data (rad/s)
+- `millis`: Timestamp in milliseconds (device relative time, resets on device restart)
+- `ax`, `ay`, `az`: Accelerometer data in g-force units (1g = 9.80665 m/s²)
+- `gx`, `gy`, `gz`: Gyroscope data in degrees per second (deg/s)
 - `tempC`: Temperature in Celsius
-- `audioRMS`: Audio RMS value
+- `audioRMS`: Audio RMS value from 16-bit PDM samples (range: 0-32768, -1.0 indicates missing data)
 
-Data rate: ~25Hz via BLE, ~100Hz via USB Serial
+### Data Characteristics
+
+- **Sample Rates**: ~25Hz via BLE, ~100Hz via USB Serial
+- **Missing Data**: AudioRMS = -1.0 when insufficient PDM data (startup/connection delays)
+- **Timestamp**: Device-relative milliseconds, potential discontinuity at restart/overflow (~49.7 days)
+- **Audio Processing**: 10ms sliding window (160 samples @ 16kHz) for RMS calculation
 
 ## System Architecture
 
@@ -37,10 +42,10 @@ Data rate: ~25Hz via BLE, ~100Hz via USB Serial
    - Interactive controls for display settings
 
 4. **Plot Components**
-   - IMU Accelerometer panel (3 traces: ax, ay, az)
-   - IMU Gyroscope panel (3 traces: gx, gy, gz)
-   - Temperature panel (single trace)
-   - Audio RMS panel (single trace)
+   - IMU Accelerometer panel (3 traces: ax, ay, az) - Units: g-force
+   - IMU Gyroscope panel (3 traces: gx, gy, gz) - Units: deg/s
+   - Temperature panel (single trace) - Units: °C
+   - Audio RMS panel (single trace) - Units: PDM counts (0-32768, gaps for -1.0)
    - Optional: Combined overview panel
 
 ### User Interface Design
@@ -52,18 +57,18 @@ Data rate: ~25Hz via BLE, ~100Hz via USB Serial
 │ Controls: [●Start] [■Stop] [⚙Settings] Connection: ●Online │
 ├─────────────────────────────────────────────────────────────┤
 │ ┌─────────────────────────┬─────────────────────────────┐   │
-│ │ Accelerometer (m/s²)    │ Gyroscope (rad/s)           │   │
+│ │ Accelerometer (g)       │ Gyroscope (deg/s)           │   │
 │ │     ┌─────────────┐     │     ┌─────────────┐         │   │
-│ │  2  │    /\  ax   │  2  │ 0.5 │     /\  gx  │  0.5    │   │
+│ │  2  │    /\  ax   │  2  │ 100 │     /\  gx  │  100    │   │
 │ │  0  │   /  \      │  0  │  0  │    /  \     │   0     │   │
-│ │ -2  │__/____\_____|_-2  │-0.5 │___/____\____|_-0.5    │   │
+│ │ -2  │__/____\_____|_-2  │-100 │___/____\____|_-100    │   │
 │ │     │   ay  az    │     │     │   gy  gz    │         │   │
 │ └─────────────────────────┴─────────────────────────────┘   │
 │ ┌─────────────────────────┬─────────────────────────────┐   │
-│ │ Temperature (°C)        │ Audio RMS                   │   │
+│ │ Temperature (°C)        │ Audio RMS (PDM counts)      │   │
 │ │     ┌─────────────┐     │     ┌─────────────┐         │   │
-│ │ 25  │ ____________│ 25  │0.1  │  /\    /\   │  0.1    │   │
-│ │ 20  │             │ 20  │0.05 │ /  \  /  \  │ 0.05    │   │
+│ │ 25  │ ____________│ 25  │5000 │  /\    /\   │  5000   │   │
+│ │ 20  │             │ 20  │2500 │ /  \  /  \  │ 2500    │   │
 │ │ 15  │_____________│ 15  │  0  │/____\/____\ │   0     │   │
 │ └─────────────────────────┴─────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
@@ -180,18 +185,25 @@ Thread 1: Data Reception (Async)          Thread 2: Web Application (Main)
 
 #### Performance Requirements
 
-- **Latency**: < 100ms from data reception to display update
-- **Buffer Size**: 1000 samples (40 seconds at 25Hz)
-- **Update Rate**: 10-20 FPS for smooth visualization
-- **Memory Usage**: < 50MB for data buffers
+- **Latency**: Median < 100ms, Maximum < 200ms from data reception to display
+- **Buffer Size**: Dynamic sizing based on time window (1500 samples for 60s @ 25Hz)
+- **Update Rate**: 15 FPS for smooth visualization (66ms intervals)
+- **Memory Usage**: < 50MB for data buffers and plot cache
 
 #### Configuration Options
 
-- **Time Window**: 5s, 10s, 30s, 60s display windows
-- **Auto-scale**: Enable/disable automatic Y-axis scaling
-- **Plot Selection**: Show/hide individual sensor plots
-- **Sampling Rate**: Display decimation for performance
-- **Export**: Save current buffer to CSV file
+- **Time Window**: 5s, 10s, 30s, 60s display windows with automatic buffer sizing
+- **Auto-scale**: Enable/disable automatic Y-axis scaling per plot panel
+- **Plot Visibility**: Show/hide individual sensor plots to improve performance
+- **Data Export**: Save current buffer or visible window to timestamped CSV
+- **Settings Persistence**: Save user preferences to browser localStorage or dcc.Store
+
+#### UI Enhancements
+
+- **Axis Management**: Linked X-axis time synchronization across all plots
+- **Missing Data Visualization**: Audio RMS gaps for -1.0 values, clear indication in plot
+- **Connection Status**: Real-time BLE connection indicator with reconnection controls
+- **Performance Monitoring**: Display buffer fill level, update rate, and connection quality
 
 ## Data Source Abstraction
 
@@ -214,9 +226,35 @@ class DataSource(ABC):
 
 ### Implementations
 
-- **BleDataSource**: Uses existing BLE receiver
-- **MockDataSource**: Generates synthetic data for testing
+- **BleDataSource**: Wraps existing `stream_rows()` async generator with start/stop/connection status
+- **MockDataSource**: Generates synthetic data for testing and development
 - **SerialDataSource**: Future USB serial implementation
+
+### Async-to-Sync Bridge Design
+
+```python
+class AsyncDataBridge:
+    def __init__(self, data_source: DataSource, buffer: DataBuffer):
+        self._source = data_source
+        self._buffer = buffer
+        self._task: Optional[asyncio.Task] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        
+    def start_background_thread(self):
+        """Start background thread with asyncio loop for data collection"""
+        thread = threading.Thread(target=self._run_async_loop, daemon=True)
+        thread.start()
+        
+    async def _data_collection_loop(self):
+        """Main async loop for data collection with error recovery"""
+        while True:
+            try:
+                async for row in self._source.get_data_stream():
+                    self._buffer.append(row)
+            except Exception as e:
+                # Log error, wait, and attempt reconnection
+                await asyncio.sleep(1.0)
+```
 
 ## Security and Error Handling
 
@@ -237,15 +275,22 @@ class DataSource(ABC):
 
 ### Data Processing
 
-- **Vectorized Operations**: Use NumPy for buffer operations
-- **Efficient Updates**: Only update changed plot data
-- **Lazy Loading**: Load plot data only when visible
+- **Vectorized Operations**: Use NumPy for efficient buffer operations and RMS calculations
+- **Smart Decimation**: Variable decimation based on time window (5s: all points, 30s+: even spacing)
+- **Missing Data Handling**: Skip audioRMS = -1.0 values, create gaps in plots
 
-### Web Interface
+### Web Interface Updates
 
-- **Client-side Caching**: Reduce server load
-- **Selective Updates**: Update only visible plots
-- **Responsive Design**: Adapt to different screen sizes
+- **Incremental Updates**: Use Plotly `extendData` for minimal data transfer
+- **UI State Preservation**: Use `uirevision` to maintain user zoom/pan settings
+- **Selective Rendering**: Update only visible/changed plots to reduce computation
+- **Dynamic Buffer Sizing**: Adjust buffer size based on selected time window
+
+### Plot Optimizations
+
+- **Linked Axes**: Share X-axis across all plots, group Y-axis for IMU panels
+- **Efficient Data Transfer**: Send only new data points since last update
+- **Client-side Caching**: Cache plot configurations to reduce server load
 
 ## Future Enhancements
 
