@@ -268,7 +268,7 @@ class AsyncDataBridge:
 ### Security Considerations
 
 - **Local Network Only**: Dash app binds to localhost by default
-- **No External Dependencies**: All data processing local
+- **Local Processing Only**: All data processing is performed locally. The application depends on libraries (e.g., Dash, Bleak) but does not transmit data to external services.
 - **Input Validation**: CSV parsing with error handling
 
 ## Performance Optimizations
