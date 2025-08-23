@@ -86,6 +86,6 @@ def main() -> None:
         drop_missing_audio=args.drop_missing_audio,
         device_name=args.device_name,
         scan_timeout=args.scan_timeout,
-    idle_timeout=args.idle_timeout,
+        idle_timeout=args.idle_timeout,
     )
     raise SystemExit(code)
