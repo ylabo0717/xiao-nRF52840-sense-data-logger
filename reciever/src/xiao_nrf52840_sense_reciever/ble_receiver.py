@@ -273,7 +273,7 @@ async def stream_rows(
                 try:
                     row = ImuRow.parse_csv(line)
                 except Exception as ex:
-                    # 変換失敗はスキップ（ログを出す場合はここで print 可）
+                    # 変換失敗はスキップ（ログで記録）
                     logger.warning("CSV 解析失敗: %s (err=%s)", line, ex)
                     continue
                 yield row
@@ -293,6 +293,7 @@ async def print_stream(
 ):
     """受信行を CSV として標準出力へ流すヘルパー。"""
     if show_header:
+        logger.info("CSV header: millis,ax,ay,az,gx,gy,gz,tempC,audioRMS")
         print("millis,ax,ay,az,gx,gy,gz,tempC,audioRMS")
     async for r in stream_rows(
         address,
@@ -304,9 +305,9 @@ async def print_stream(
             logger.debug("audioRMS 欠損のためスキップ: millis=%d", r.millis)
             continue
         # 受信は自由フォーマットだが、こちらの出力は安定化しておく
-        print(
-            f"{r.millis},{r.ax:.6f},{r.ay:.6f},{r.az:.6f},{r.gx:.6f},{r.gy:.6f},{r.gz:.6f},{r.tempC:.2f},{r.audioRMS:.2f}"
-        )
+        csv_line = f"{r.millis},{r.ax:.6f},{r.ay:.6f},{r.az:.6f},{r.gx:.6f},{r.gy:.6f},{r.gz:.6f},{r.tempC:.2f},{r.audioRMS:.2f}"
+        logger.debug("CSV output: %s", csv_line)
+        print(csv_line)
 
 
 def run(
