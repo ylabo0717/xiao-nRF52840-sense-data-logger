@@ -195,6 +195,7 @@ Thread 1: Data Reception (Async)          Thread 2: Web Application (Main)
 - **Time Window**: 5s, 10s, 30s, 60s display windows with automatic buffer sizing
 - **Auto-scale**: Enable/disable automatic Y-axis scaling per plot panel
 - **Plot Visibility**: Show/hide individual sensor plots to improve performance
+- **Audio RMS Display**: Toggle between raw PDM counts (0-32768) and normalized scale (0-1.0)
 - **Data Export**: Save current buffer or visible window to timestamped CSV
 - **Settings Persistence**: Save user preferences to browser localStorage or dcc.Store
 
@@ -202,6 +203,7 @@ Thread 1: Data Reception (Async)          Thread 2: Web Application (Main)
 
 - **Axis Management**: Linked X-axis time synchronization across all plots
 - **Missing Data Visualization**: Audio RMS gaps for -1.0 values, clear indication in plot
+- **Timestamp Discontinuity Handling**: Detect large jumps in device timestamps (>2x expected interval) and reset X-axis origin to maintain continuous visualization
 - **Connection Status**: Real-time BLE connection indicator with reconnection controls
 - **Performance Monitoring**: Display buffer fill level, update rate, and connection quality
 
@@ -222,13 +224,40 @@ class DataSource(ABC):
 
     @abstractmethod
     def is_connected(self) -> bool: ...
+    
+    @abstractmethod
+    def get_nominal_sample_rate(self) -> float: ...
+    
+    def get_measured_sample_rate(self) -> Optional[float]: ...
 ```
 
 ### Implementations
 
 - **BleDataSource**: Wraps existing `stream_rows()` async generator with start/stop/connection status
+  - Nominal sample rate: 25 Hz
+  - Measured rate calculated from timestamp intervals
 - **MockDataSource**: Generates synthetic data for testing and development
+  - Configurable sample rate (default: 25 Hz)
 - **SerialDataSource**: Future USB serial implementation
+  - Nominal sample rate: 100 Hz
+  - Higher data rate requires adjusted buffer sizing and decimation strategies
+
+#### Sample Rate Management
+
+```python
+class DataBuffer:
+    def __init__(self, data_source: DataSource, time_window_seconds: float = 60.0):
+        nominal_rate = data_source.get_nominal_sample_rate()
+        self.max_size = int(nominal_rate * time_window_seconds * 1.2)  # 20% margin
+        self._buffer: deque[ImuRow] = deque(maxlen=self.max_size)
+        
+    def get_effective_sample_rate(self) -> float:
+        """Calculate actual sample rate from recent timestamps"""
+        if len(self._buffer) < 2:
+            return 0.0
+        time_span = self._buffer[-1].millis - self._buffer[0].millis
+        return (len(self._buffer) - 1) * 1000.0 / time_span if time_span > 0 else 0.0
+```
 
 ### Async-to-Sync Bridge Design
 
@@ -239,21 +268,52 @@ class AsyncDataBridge:
         self._buffer = buffer
         self._task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._stop_event = threading.Event()
         
     def start_background_thread(self):
         """Start background thread with asyncio loop for data collection"""
+        self._stop_event.clear()
         thread = threading.Thread(target=self._run_async_loop, daemon=True)
         thread.start()
         
+    def stop(self):
+        """Stop the background data collection"""
+        self._stop_event.set()
+        if self._task and self._loop:
+            # Schedule task cancellation in the background loop
+            self._loop.call_soon_threadsafe(self._task.cancel)
+    
+    def _run_async_loop(self):
+        """Create new event loop and run data collection task"""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        try:
+            self._task = self._loop.create_task(self._data_collection_loop())
+            self._loop.run_until_complete(self._task)
+        except asyncio.CancelledError:
+            pass  # Clean shutdown
+        finally:
+            self._loop.close()
+            
     async def _data_collection_loop(self):
         """Main async loop for data collection with error recovery"""
-        while True:
+        while not self._stop_event.is_set():
             try:
+                await self._source.start()
                 async for row in self._source.get_data_stream():
+                    if self._stop_event.is_set():
+                        break
                     self._buffer.append(row)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                # Log error, wait, and attempt reconnection
-                await asyncio.sleep(1.0)
+                # Log error, cleanup, wait, and attempt reconnection
+                logging.warning(f"Data collection error: {e}")
+                try:
+                    await self._source.stop()
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)  # Backoff before retry
 ```
 
 ## Security and Error Handling
