@@ -24,7 +24,11 @@
       "mcp__serena__replace_symbol_body",
       "mcp__serena__insert_before_symbol",
       "mcp__context7__resolve-library-id",
-      "mcp__context7__get-library-docs"
+      "mcp__context7__get-library-docs",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "mcp__serena__search_for_pattern",
+      "mcp__serena__replace_symbol_body"
     ],
     "deny": [
       "Bash(sudo *)",
@@ -46,10 +50,10 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "serena",
     "context7",
     "playwright"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
