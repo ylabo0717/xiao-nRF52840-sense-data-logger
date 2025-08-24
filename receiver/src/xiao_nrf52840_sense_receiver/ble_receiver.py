@@ -1149,12 +1149,38 @@ def _parse_line_from_buffer(
 
 
 def _log_buffer_preview(buffer: bytearray) -> None:
-    """バッファの内容をHEX/ASCII形式でプレビューログ出力。"""
-    # バッファ内に存在する制御バイト(<0x20)の種類を一覧表示
+    """Log buffer contents in HEX/ASCII format for debugging transmission issues.
+
+    This function provides diagnostic output when BLE data reception encounters
+    unexpected delimiters or control characters. The dual HEX/ASCII format helps
+    identify transmission artifacts, encoding issues, or protocol deviations.
+
+    The implementation is designed to be called sparingly (once per problematic
+    session) to avoid log spam while providing essential debugging information
+    when line parsing fails due to unknown control sequences.
+
+    Key features:
+    1. **Control character inventory**: Lists all control bytes present to identify
+       non-printable characters that may interfere with line parsing.
+    2. **Head/tail sampling**: Shows beginning and end of buffer to capture both
+       initial transmission patterns and current reception state.
+    3. **Dual format output**: HEX for precise byte analysis, ASCII for readable
+       text identification.
+
+    Args:
+        buffer: Byte buffer containing accumulated BLE data that failed to parse
+            into complete lines. The buffer contents are examined but not modified.
+
+    Note:
+        This function is called only when buffer size exceeds 256 bytes without
+        finding valid line delimiters, indicating potential transmission issues
+        that require manual analysis for protocol debugging.
+    """
+    # Inventory control bytes present in buffer (<0x20) for analysis
     ctrl_set = sorted(set(b for b in buffer if b < 0x20))
     if ctrl_set:
         logger.debug(
-            "制御バイト存在: %s",
+            "Control bytes present: %s",
             " ".join(f"{b:02X}" for b in ctrl_set),
         )
 
@@ -1167,10 +1193,10 @@ def _log_buffer_preview(buffer: bytearray) -> None:
     def ascii_str(bs: bytes) -> str:
         return "".join(chr(b) if 32 <= b < 127 else "." for b in bs)
 
-    logger.debug("HEXプレビュー(head): %s | ASCII: %s", hex_str(head), ascii_str(head))
+    logger.debug("HEX preview (head): %s | ASCII: %s", hex_str(head), ascii_str(head))
     if tail:
         logger.debug(
-            "HEXプレビュー(tail): %s | ASCII: %s", hex_str(tail), ascii_str(tail)
+            "HEX preview (tail): %s | ASCII: %s", hex_str(tail), ascii_str(tail)
         )
 
 
@@ -1180,7 +1206,42 @@ def _create_notification_handler(
     debug_hex_dumped: dict[str, bool],
     disconnected: asyncio.Event,
 ) -> Callable[[bytearray], None]:
-    """通知データを処理するハンドラーを作成。"""
+    """Create a BLE notification handler with proper closure state management.
+
+    This function creates a callback handler for BLE characteristic notifications
+    that bridges between synchronous BLE callbacks and asynchronous data processing.
+    The implementation uses closure state to maintain shared resources across
+    multiple notification callbacks.
+
+    The handler design addresses key challenges in BLE data reception:
+    1. **Fragment assembly**: BLE notifications arrive as arbitrary-sized chunks
+       that must be accumulated and parsed into complete lines.
+    2. **Async bridging**: BLE callbacks are synchronous but need to communicate
+       with async consumer code through thread-safe queues.
+    3. **Error isolation**: Callback exceptions must not propagate to BLE stack
+       or crash the connection.
+    4. **Disconnect coordination**: Ensures consumer threads are awakened when
+       connections are lost to prevent indefinite blocking.
+
+    Args:
+        queue: Async queue for passing parsed lines to consumer threads.
+            Uses Optional[str] where None indicates disconnection.
+        buffer: Shared byte buffer for accumulating fragmented BLE data.
+            Modified by the returned handler as data arrives.
+        debug_hex_dumped: State dict controlling debug output frequency
+            to prevent log spam during problematic sessions.
+        disconnected: Event flag indicating BLE connection loss.
+            Monitored to trigger consumer wakeup on disconnect.
+
+    Returns:
+        Callable handler function compatible with Bleak notification callbacks.
+        Handler signature matches bleak.BleakClient.start_notify() requirements.
+
+    Note:
+        The returned handler maintains references to all closure variables,
+        enabling stateful processing across multiple BLE notifications while
+        isolating each callback invocation from potential errors.
+    """
 
     def wake_consumer() -> None:
         try:
@@ -1189,10 +1250,10 @@ def _create_notification_handler(
             pass
 
     def handle(data: bytearray) -> None:
-        logger.debug("Notify 受信: %d bytes", len(data))
+        logger.debug("Notification received: %d bytes", len(data))
         buffer.extend(data)
 
-        # 改行区切りで行に切る
+        # Parse accumulated data into complete lines
         while True:
             text = _parse_line_from_buffer(buffer, debug_hex_dumped)
             if text is None:
@@ -1209,7 +1270,43 @@ def _create_notification_handler(
 async def _get_device_address(
     address: Optional[str], device_name: str, service_uuid: str, scan_timeout: float
 ) -> str:
-    """デバイスアドレスを取得（スキャンまたは直接指定）。"""
+    """Resolve target device address through direct specification or discovery.
+
+    This function provides a unified interface for device address resolution,
+    supporting both direct address specification (for known devices) and
+    automatic discovery (for typical usage scenarios). The implementation
+    optimizes for the common case while providing flexibility for advanced use.
+
+    The dual-mode approach serves different deployment scenarios:
+    1. **Direct addressing**: For production systems with known device addresses,
+       avoiding scan overhead and ensuring deterministic connection targets.
+    2. **Discovery mode**: For development and user-friendly scenarios where
+       devices are identified by name rather than MAC address.
+
+    Args:
+        address: Optional specific BLE device address. If provided, returned
+            immediately without scanning. Format should be standard MAC address
+            (e.g., "12:34:56:78:9A:BC").
+        device_name: Target device name for discovery mode. Used only when
+            address is None. Should match device's advertised name exactly.
+        service_uuid: Target service UUID for discovery fallback. Used when
+            device name matching fails but service UUID matches.
+        scan_timeout: Maximum time to spend in discovery mode. Ignored when
+            address is directly specified.
+
+    Returns:
+        Valid BLE device address string ready for connection attempts.
+
+    Raises:
+        RuntimeError: If discovery mode fails to find any matching device
+            within the specified timeout period. Error message includes
+            troubleshooting guidance for common connection issues.
+
+    Note:
+        When address is specified directly, no validation is performed - the
+        address is assumed valid. Invalid addresses will cause connection
+        failures in subsequent operations rather than immediate errors here.
+    """
     if address is not None:
         return address
 
@@ -1218,10 +1315,14 @@ async def _get_device_address(
     )
     if not dev:
         raise RuntimeError(
-            "対象デバイスが見つかりませんでした。スキャン条件や距離を確認してください。"
+            "Target device not found. Please check scan conditions and device proximity."
         )
 
-    logger.info("接続先アドレス: %s (name=%s)", dev.address, getattr(dev, "name", None))
+    logger.info(
+        "Connection target address: %s (name=%s)",
+        dev.address,
+        getattr(dev, "name", None),
+    )
     return dev.address
 
 
@@ -1231,7 +1332,41 @@ async def _process_message_queue(
     disconnected: asyncio.Event,
     client: BleakClient,
 ) -> AsyncIterator[ImuRow]:
-    """Process messages from queue and yield ImuRow objects."""
+    """Process BLE message queue with timeout handling and connection monitoring.
+
+    This function implements the consumer side of a producer-consumer pattern for BLE data.
+    It continuously processes messages from the queue, parsing them into structured data rows.
+    The design handles several critical edge cases inherent in wireless communication:
+
+    1. **Timeout Management**: Uses configurable idle timeout to detect communication stalls
+       without blocking indefinitely. This is essential for responsive UI applications.
+
+    2. **Connection State Monitoring**: Actively checks both the disconnection event and
+       client connection status to provide fast failure detection.
+
+    3. **Graceful Degradation**: Continues operation despite individual message parsing
+       failures, logging errors while maintaining data flow continuity.
+
+    4. **Sentinel Handling**: Recognizes None as a disconnection signal from the producer,
+       enabling clean shutdown coordination.
+
+    Args:
+        queue: Message queue containing raw CSV strings from BLE notifications
+        idle_timeout: Maximum seconds to wait for messages before checking connection.
+                     None for indefinite waiting.
+        disconnected: Event signaling BLE disconnection from notification handler
+        client: BLE client for connection status verification
+
+    Yields:
+        ImuRow: Successfully parsed sensor data rows
+
+    Raises:
+        RuntimeError: When BLE connection is lost or timeout occurs on disconnected client
+
+    Note:
+        This function is designed to be resilient to temporary communication issues
+        while failing fast on permanent connection loss.
+    """
     while True:
         # Apply idle timeout if configured
         if idle_timeout is not None:
@@ -1276,7 +1411,51 @@ async def stream_rows(
     scan_timeout: float = 10.0,
     idle_timeout: Optional[float] = None,
 ) -> AsyncIterator[ImuRow]:
-    """Subscribe to XIAO device notifications and stream assembled CSV lines as ImuRow objects."""
+    """Stream IMU sensor data from XIAO nRF52840 Sense device via BLE.
+
+    This is the high-level public API for BLE sensor data streaming. It orchestrates
+    the complete BLE communication pipeline from device discovery through data reception.
+    The implementation follows a multi-layered architecture:
+
+    1. **Device Discovery**: Automatically locates target device by name/service if
+       address not provided, with configurable scan timeout
+    2. **Connection Management**: Establishes robust BLE connection with automatic
+       disconnection detection and cleanup
+    3. **Data Pipeline**: Sets up producer-consumer pattern with notification handler
+       feeding parsed data through an async queue
+    4. **Resource Management**: Ensures proper cleanup of BLE resources using context
+       managers and try/finally blocks
+
+    The design prioritizes reliability over performance, implementing defensive patterns
+    for wireless communication challenges like connection drops, partial transmissions,
+    and timing variations.
+
+    Args:
+        address: Specific BLE device address. If None, performs automatic discovery.
+        device_name: Device name filter for discovery (default: "XIAO Sense IMU")
+        service_uuid: Target BLE service UUID (default: Nordic UART Service)
+        tx_char_uuid: TX characteristic UUID for notifications
+        scan_timeout: Maximum seconds to spend on device discovery
+        idle_timeout: Maximum seconds to wait between messages before checking
+                     connection. None for indefinite waiting.
+
+    Yields:
+        ImuRow: Parsed sensor data containing accelerometer, gyroscope, temperature,
+                and audio RMS values with timestamps
+
+    Raises:
+        RuntimeError: On connection failure or communication timeout
+        DeviceNotFoundError: When target device cannot be located during discovery
+
+    Example:
+        >>> async for row in stream_rows(idle_timeout=30.0):
+        ...     print(f"Accel: {row.ax:.3f}, {row.ay:.3f}, {row.az:.3f}")
+
+    Note:
+        This function is designed to be the primary entry point for BLE data collection.
+        It handles all low-level BLE complexity while providing a simple async iterator
+        interface for consuming applications.
+    """
 
     address = await _get_device_address(
         address, device_name, service_uuid, scan_timeout
