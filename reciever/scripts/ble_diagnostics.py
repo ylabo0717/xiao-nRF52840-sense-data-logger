@@ -9,8 +9,8 @@ import asyncio
 import subprocess
 import platform
 
-# Add the receiver module to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# Add the receiver module to the path (from scripts/ to src/)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 try:
     from bleak import BleakScanner
@@ -106,7 +106,7 @@ async def test_connection_to_xiao() -> None:
     print("\n🔌 Testing connection to XIAO Sense IMU...")
 
     try:
-        from xiao_nrf52840_sense_reciever.ble_receiver import BleDataSource
+        from xiao_nrf52840_sense_reciever.ble_receiver import BleDataSource  # type: ignore[import-not-found]
 
         ble_source = BleDataSource(scan_timeout=15.0, idle_timeout=20.0)
 
