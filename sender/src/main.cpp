@@ -444,8 +444,8 @@ void loop() {
                                   (size_t)(blePendLen - blePendPos),
                                   BLE_BODY_SLICE_MS);
       blePendPos += (int)wrote;
-  // Monitor consecutive zero writes (simplified version without logging)
-  static uint32_t zeroStart = 0;
+      // Monitor consecutive zero writes (simplified version without logging)
+      static uint32_t zeroStart = 0;
       if (wrote == 0) {
         if (zeroStart == 0) zeroStart = millis();
         // If no progress for 3+ seconds, drop pending line and attempt recovery
