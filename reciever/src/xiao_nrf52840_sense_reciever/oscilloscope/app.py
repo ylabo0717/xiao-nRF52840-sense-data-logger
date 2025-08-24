@@ -4,7 +4,7 @@ Dash application for oscilloscope visualization.
 
 import asyncio
 import threading
-from typing import Optional
+from typing import Any, List, Optional, Tuple
 
 import dash  # type: ignore
 from dash import dcc, html, Input, Output
@@ -28,6 +28,10 @@ class OscilloscopeApp:
         self._stop_event = threading.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Data collection control state
+        self._collection_paused = False
+        self._collection_running = False
+
         # Recording manager (new)
         from ..data_recorder import RecorderManager
         from pathlib import Path
@@ -47,6 +51,7 @@ class OscilloscopeApp:
                 html.H1(
                     "XIAO nRF52840 Sense - Oscilloscope", style={"textAlign": "center"}
                 ),
+                # Top control panels row
                 html.Div(
                     [
                         html.Div(
@@ -136,6 +141,148 @@ class OscilloscopeApp:
                     ],
                     style={"margin": "20px", "display": "flex", "gap": "10px"},
                 ),
+                # Second control panels row - Interactive Controls
+                html.Div(
+                    [
+                        # Data Collection Controls
+                        html.Div(
+                            [
+                                html.H3("Data Collection"),
+                                html.Div(
+                                    [
+                                        html.Button(
+                                            "▶️ Start Collection",
+                                            id="start-collection-btn",
+                                            style={
+                                                "marginRight": "10px",
+                                                "padding": "8px 16px",
+                                                "backgroundColor": "#28a745",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                            },
+                                        ),
+                                        html.Button(
+                                            "⏸️ Pause Collection",
+                                            id="pause-collection-btn",
+                                            disabled=True,
+                                            style={
+                                                "padding": "8px 16px",
+                                                "backgroundColor": "#6c757d",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                            },
+                                        ),
+                                    ],
+                                    style={"marginBottom": "10px"},
+                                ),
+                                html.Div(
+                                    id="collection-status",
+                                    children="⏹️ Collection Stopped",
+                                ),
+                            ],
+                            style={
+                                "width": "30%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
+                        ),
+                        # View Controls
+                        html.Div(
+                            [
+                                html.H3("View Controls"),
+                                html.Div(
+                                    [
+                                        html.Label(
+                                            "Time Window:",
+                                            style={
+                                                "fontSize": "12px",
+                                                "marginBottom": "5px",
+                                            },
+                                        ),
+                                        dcc.Dropdown(
+                                            id="time-window-dropdown",
+                                            options=[
+                                                {"label": "5 seconds", "value": 5},
+                                                {"label": "10 seconds", "value": 10},
+                                                {"label": "30 seconds", "value": 30},
+                                                {"label": "60 seconds", "value": 60},
+                                            ],
+                                            value=20,  # Default to 20 seconds (500 samples / 25Hz)
+                                            style={
+                                                "marginBottom": "10px",
+                                                "fontSize": "12px",
+                                            },
+                                        ),
+                                        html.Div(
+                                            [
+                                                dcc.Checklist(
+                                                    id="auto-scale-checklist",
+                                                    options=[
+                                                        {
+                                                            "label": " Auto-scale Y-axis",
+                                                            "value": "auto",
+                                                        }
+                                                    ],
+                                                    value=[],  # Start with auto-scale off
+                                                    style={"fontSize": "12px"},
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                            ],
+                            style={
+                                "width": "35%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
+                        ),
+                        # Plot Visibility Controls
+                        html.Div(
+                            [
+                                html.H3("Show/Hide Plots"),
+                                dcc.Checklist(
+                                    id="plot-visibility-checklist",
+                                    options=[
+                                        {"label": " Accelerometer", "value": "accel"},
+                                        {"label": " Gyroscope", "value": "gyro"},
+                                        {"label": " Temperature", "value": "temp"},
+                                        {"label": " Audio", "value": "audio"},
+                                    ],
+                                    value=[
+                                        "accel",
+                                        "gyro",
+                                        "temp",
+                                        "audio",
+                                    ],  # All visible by default
+                                    style={"fontSize": "12px"},
+                                ),
+                            ],
+                            style={
+                                "width": "30%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
+                        ),
+                    ],
+                    style={"margin": "20px", "display": "flex", "gap": "10px"},
+                ),
                 # Multi-sensor plots
                 html.Div(
                     [
@@ -152,8 +299,9 @@ class OscilloscopeApp:
                     interval=self.update_interval,  # in milliseconds
                     n_intervals=0,
                 ),
-                # Hidden div to store recording state
+                # Hidden divs to store states
                 html.Div(id="recording-state-store", style={"display": "none"}),
+                html.Div(id="collection-state-store", style={"display": "none"}),
             ]
         )
 
@@ -172,13 +320,44 @@ class OscilloscopeApp:
                 Output("stop-recording-btn", "disabled"),
                 Output("start-recording-btn", "style"),
                 Output("stop-recording-btn", "style"),
+                # New interactive control outputs
+                Output("collection-status", "children"),
+                Output("start-collection-btn", "disabled"),
+                Output("pause-collection-btn", "disabled"),
+                Output("start-collection-btn", "style"),
+                Output("pause-collection-btn", "style"),
             ],
-            [Input("interval-component", "n_intervals")],
+            [
+                Input("interval-component", "n_intervals"),
+                Input("time-window-dropdown", "value"),
+                Input("plot-visibility-checklist", "value"),
+                Input("auto-scale-checklist", "value"),
+            ],
         )
-        def update_plots(n_intervals: int):  # type: ignore
-            # Get recent data
-            data = self.buffer.get_recent(500)  # Show last 500 points
+        def update_plots(
+            n_intervals: int,
+            time_window: int,
+            visible_plots: List[str],
+            auto_scale_list: List[str],
+        ) -> Tuple[Any, ...]:
+            # Provide default values for optional inputs
+            if time_window is None:
+                time_window = 20
+            if visible_plots is None:
+                visible_plots = ["accel", "gyro", "temp", "audio"]
+            if auto_scale_list is None:
+                auto_scale_list = []
+
+            # Get recent data based on time window
+            if time_window and time_window > 0:
+                sample_rate = 25  # Hz, approximate
+                max_samples = int(time_window * sample_rate)
+                data = self.buffer.get_recent(max_samples)
+            else:
+                data = self.buffer.get_recent(500)  # Default
+
             stats = self.buffer.stats
+            auto_scale = "auto" in auto_scale_list if auto_scale_list else False
 
             # Enhanced connection status with startup detection
             buffer_has_data = self.buffer.size > 0
@@ -219,8 +398,13 @@ class OscilloscopeApp:
                     f"🔍 UI Debug: Buffer size={self.buffer.size}, Sample rate={stats.sample_rate:.1f}Hz, Status: {connection_status}"
                 )
 
-            # Create multi-sensor plot layout
-            multi_fig = create_multi_plot_layout(data)
+            # Create multi-sensor plot layout with new parameters
+            multi_fig = create_multi_plot_layout(
+                data,
+                time_window_seconds=time_window,
+                visible_plots=visible_plots,
+                auto_scale=auto_scale,
+            )
 
             # Debug: Log connection status periodically
             if n_intervals % 60 == 0:  # Every ~4 seconds
@@ -261,6 +445,7 @@ class OscilloscopeApp:
             )
 
             # Buffer statistics
+            display_time = len(data) / 25.0 if data else 0
             buffer_info = html.Div(
                 [
                     html.P(
@@ -270,12 +455,11 @@ class OscilloscopeApp:
                     ),
                     html.P(
                         f"Displaying: {len(data)} data points "
-                        f"({len(data) / 25:.1f}s @ 25Hz)",
+                        f"({display_time:.1f}s @ 25Hz)",
                         style={"margin": "5px 0"},
                     ),
                     html.P(
-                        f"Buffer Duration: {self.buffer.max_size / 25:.1f}s "
-                        f"({self.buffer.max_size / 25 / 60:.1f}min)",
+                        f"Time Window: {time_window}s",
                         style={"margin": "5px 0"},
                     ),
                 ]
@@ -288,17 +472,17 @@ class OscilloscopeApp:
             if recording_status_obj.is_recording:
                 recording_status_text = "🔴 Recording"
                 recording_status_color = "red"
-                start_btn_disabled = True
-                stop_btn_disabled = False
-                start_btn_bg = "#6c757d"  # Gray when disabled
-                stop_btn_bg = "#dc3545"  # Red when active
+                start_rec_btn_disabled = True
+                stop_rec_btn_disabled = False
+                start_rec_btn_bg = "#6c757d"  # Gray when disabled
+                stop_rec_btn_bg = "#dc3545"  # Red when active
             else:
                 recording_status_text = "⚪ Ready to record"
                 recording_status_color = "gray"
-                start_btn_disabled = False
-                stop_btn_disabled = True
-                start_btn_bg = "#dc3545"  # Red when active
-                stop_btn_bg = "#6c757d"  # Gray when disabled
+                start_rec_btn_disabled = False
+                stop_rec_btn_disabled = True
+                start_rec_btn_bg = "#dc3545"  # Red when active
+                stop_rec_btn_bg = "#6c757d"  # Gray when disabled
 
             recording_status_display = html.Span(
                 recording_status_text,
@@ -345,27 +529,80 @@ class OscilloscopeApp:
                     ]
                 )
 
+            # Data collection status and button states
+            if self._collection_running and not self._collection_paused:
+                collection_status_text = "▶️ Collection Running"
+                collection_status_color = "green"
+                start_coll_btn_disabled = True
+                pause_coll_btn_disabled = False
+                start_coll_btn_bg = "#6c757d"
+                pause_coll_btn_bg = "#ffc107"  # Warning color for pause
+            elif self._collection_running and self._collection_paused:
+                collection_status_text = "⏸️ Collection Paused"
+                collection_status_color = "orange"
+                start_coll_btn_disabled = False
+                pause_coll_btn_disabled = True
+                start_coll_btn_bg = "#28a745"
+                pause_coll_btn_bg = "#6c757d"
+            else:
+                collection_status_text = "⏹️ Collection Stopped"
+                collection_status_color = "gray"
+                start_coll_btn_disabled = False
+                pause_coll_btn_disabled = True
+                start_coll_btn_bg = "#28a745"
+                pause_coll_btn_bg = "#6c757d"
+
+            collection_status_display = html.Span(
+                collection_status_text,
+                style={
+                    "color": collection_status_color,
+                    "fontWeight": "bold",
+                    "fontSize": "16px",
+                },
+            )
+
             # Button styles
-            start_btn_style = {
+            start_rec_btn_style = {
                 "marginRight": "10px",
                 "padding": "8px 16px",
-                "backgroundColor": start_btn_bg,
+                "backgroundColor": start_rec_btn_bg,
                 "color": "white",
                 "border": "none",
                 "borderRadius": "4px",
-                "cursor": "pointer" if not start_btn_disabled else "not-allowed",
-                "opacity": "0.6" if start_btn_disabled else "1.0",
+                "cursor": "pointer" if not start_rec_btn_disabled else "not-allowed",
+                "opacity": "0.6" if start_rec_btn_disabled else "1.0",
             }
 
-            stop_btn_style = {
+            stop_rec_btn_style = {
                 "marginRight": "10px",
                 "padding": "8px 16px",
-                "backgroundColor": stop_btn_bg,
+                "backgroundColor": stop_rec_btn_bg,
                 "color": "white",
                 "border": "none",
                 "borderRadius": "4px",
-                "cursor": "pointer" if not stop_btn_disabled else "not-allowed",
-                "opacity": "0.6" if stop_btn_disabled else "1.0",
+                "cursor": "pointer" if not stop_rec_btn_disabled else "not-allowed",
+                "opacity": "0.6" if stop_rec_btn_disabled else "1.0",
+            }
+
+            start_coll_btn_style = {
+                "marginRight": "10px",
+                "padding": "8px 16px",
+                "backgroundColor": start_coll_btn_bg,
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer" if not start_coll_btn_disabled else "not-allowed",
+                "opacity": "0.6" if start_coll_btn_disabled else "1.0",
+            }
+
+            pause_coll_btn_style = {
+                "padding": "8px 16px",
+                "backgroundColor": pause_coll_btn_bg,
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer" if not pause_coll_btn_disabled else "not-allowed",
+                "opacity": "0.6" if pause_coll_btn_disabled else "1.0",
             }
 
             return (
@@ -375,10 +612,15 @@ class OscilloscopeApp:
                 buffer_info,
                 recording_status_display,
                 recording_info_display,
-                start_btn_disabled,
-                stop_btn_disabled,
-                start_btn_style,
-                stop_btn_style,
+                start_rec_btn_disabled,
+                stop_rec_btn_disabled,
+                start_rec_btn_style,
+                stop_rec_btn_style,
+                collection_status_display,
+                start_coll_btn_disabled,
+                pause_coll_btn_disabled,
+                start_coll_btn_style,
+                pause_coll_btn_style,
             )
 
         # Recording control callbacks
@@ -418,6 +660,47 @@ class OscilloscopeApp:
                     return "error"
             return "idle"
 
+        # Data collection control callbacks
+        @self.app.callback(  # type: ignore
+            Output("collection-state-store", "children"),
+            [Input("start-collection-btn", "n_clicks")],
+            prevent_initial_call=True,
+        )
+        def start_collection(n_clicks: int):  # type: ignore
+            if n_clicks:
+                try:
+                    if not self._collection_running:
+                        # Start new collection
+                        self.start_data_collection()
+                        self._collection_running = True
+                        self._collection_paused = False
+                        print("▶️ Data collection started")
+                    elif self._collection_paused:
+                        # Resume paused collection
+                        self._collection_paused = False
+                        print("▶️ Data collection resumed")
+                    return "running"
+                except Exception as e:
+                    print(f"❌ Failed to start/resume collection: {e}")
+                    return "error"
+            return "idle"
+
+        @self.app.callback(  # type: ignore
+            Output("collection-state-store", "children", allow_duplicate=True),
+            [Input("pause-collection-btn", "n_clicks")],
+            prevent_initial_call=True,
+        )
+        def pause_collection(n_clicks: int):  # type: ignore
+            if n_clicks and self._collection_running and not self._collection_paused:
+                try:
+                    self._collection_paused = True
+                    print("⏸️ Data collection paused")
+                    return "paused"
+                except Exception as e:
+                    print(f"❌ Failed to pause collection: {e}")
+                    return "error"
+            return "idle"
+
     def _data_collection_worker(self) -> None:
         """Background worker to collect data from the data source with retry logic."""
 
@@ -442,6 +725,12 @@ class OscilloscopeApp:
                         if self._stop_event.is_set():
                             print("🛑 Stop event received, ending data collection")
                             break
+
+                        # Check if collection is paused
+                        if self._collection_paused:
+                            # When paused, sleep briefly and check again
+                            await asyncio.sleep(0.1)
+                            continue
 
                         self.buffer.append(row)
                         data_count += 1

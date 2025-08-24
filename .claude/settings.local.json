@@ -32,7 +32,8 @@
       "mcp__serena__list_dir",
       "Bash(uv sync:*)",
       "Bash(uv run:*)",
-      "mcp__serena__activate_project"
+      "mcp__serena__activate_project",
+      "Bash(find:*)"
     ],
     "deny": [
       "Bash(sudo *)",
