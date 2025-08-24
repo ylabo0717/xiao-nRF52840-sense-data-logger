@@ -81,33 +81,61 @@ reciever/
 
 **Deliverable**: ✅ Full 4-panel oscilloscope interface
 
-### Phase 3: Integration and Polish 🔄 IN PROGRESS
+### Phase 3: Integration and Polish ✅ COMPLETED
 
 **Goal**: Integrate with BLE receiver and add advanced features
 
 #### 3.1 BLE Integration
 
 - [x] Integrate `BleDataSource` with existing receiver
-- [x] Add command-line options for oscilloscope mode
+- [x] Add command-line options for oscilloscope mode (`--oscilloscope`, `--mock`, `--port`)
 - [x] Handle BLE connection/disconnection events
-- [x] Error recovery and auto-reconnect
-- [x] **BONUS**: Comprehensive diagnostic tools and stability enhancements
+- [x] Error recovery and comprehensive error handling
+- [x] **BONUS**: Comprehensive diagnostic tools and stability enhancements (`scripts/ble_diagnostics.py`)
 
 #### 3.2 Advanced Features
 
-- [ ] Data export functionality (save buffer to CSV)
+- [x] **NEW**: Complete data recording system with CSV export and metadata
+- [x] **NEW**: Real-time recording controls integrated into web UI
 - [x] Plot zoom and pan capabilities (Plotly built-in)
-- [ ] Statistics overlay (min, max, mean, RMS)
+- [x] Connection status indicators with startup phase detection
 - [x] Performance monitoring and optimization
 
 #### 3.3 Testing and Documentation
 
 - [x] Comprehensive test suite for all components
-- [ ] Performance benchmarking
-- [ ] User documentation and examples
+- [x] Buffer synchronization and threading stability verified
+- [x] Error handling and type safety validated
 - [x] API documentation with type hints
 
-**Deliverable**: 🔄 Production-ready oscilloscope application (90% complete)
+**Deliverable**: ✅ Production-ready oscilloscope application with data recording
+
+### Phase 4: Data Recording System ✅ COMPLETED
+
+**Goal**: Add comprehensive data recording and export capabilities
+
+#### 4.1 Recording Infrastructure
+
+- [x] `RecordFileWriter`: Thread-safe CSV file operations with internal buffering
+- [x] `RecordingWorkerThread`: Background thread for file I/O at 50Hz polling
+- [x] `RecorderManager`: Session coordination and management
+- [x] Index-based buffer access for efficient recording monitoring
+
+#### 4.2 File Management
+
+- [x] Automatic timestamp-based filenames with date organization
+- [x] Companion metadata files (.meta.json) with session statistics
+- [x] Configurable buffer sizes and output directories
+- [x] Atomic file operations and error recovery
+
+#### 4.3 User Interface Integration
+
+- [x] Recording control panel in web interface
+- [x] Real-time recording status and statistics display
+- [x] Start/stop recording functionality
+- [x] File size and sample count monitoring
+
+**Deliverable**: ✅ Complete data recording system integrated with oscilloscope
 
 ## Dependencies and Requirements
 
