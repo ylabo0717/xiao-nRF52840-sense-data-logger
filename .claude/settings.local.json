@@ -36,7 +36,9 @@
       "Bash(find:*)",
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_take_screenshot",
-      "Bash(npx prettier:*)"
+      "Bash(npx prettier:*)",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_close"
     ],
     "deny": [
       "Bash(sudo *)",
