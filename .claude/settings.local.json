@@ -31,7 +31,8 @@
       "mcp__serena__replace_symbol_body",
       "mcp__serena__list_dir",
       "Bash(uv sync:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "mcp__serena__activate_project"
     ],
     "deny": [
       "Bash(sudo *)",
