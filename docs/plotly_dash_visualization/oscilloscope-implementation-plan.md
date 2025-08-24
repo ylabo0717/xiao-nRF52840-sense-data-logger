@@ -67,10 +67,10 @@ receiver/
 
 #### 2.2 Interactive Controls
 
-- [ ] Add start/stop buttons for data acquisition
-- [ ] Time window selection (5s, 10s, 30s, 60s)
-- [ ] Auto-scale toggle for Y-axis
-- [ ] Plot visibility toggles
+- [x] Add start/stop buttons for data acquisition
+- [x] Time window selection (5s, 10s, 30s, 60s)
+- [x] Auto-scale toggle for Y-axis
+- [x] Plot visibility toggles
 
 #### 2.3 Real-time Updates
 
