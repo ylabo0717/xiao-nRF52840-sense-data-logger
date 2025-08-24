@@ -12,27 +12,28 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="xiao-nrf52840-sense-receiver",
-        description="XIAO nRF52840 Sense から BLE (NUS) 経由で CSV テレメトリを受信してオシロスコープ表示、またはCSVを標準出力へ流します。",
+        description="Receive CSV telemetry from XIAO nRF52840 Sense via BLE (NUS) and display as oscilloscope or output CSV to stdout.",
     )
     parser.add_argument(
-        "--address", help="接続するデバイスの BLE アドレス （未指定で自動検出)"
+        "--address",
+        help="BLE address of the device to connect to (auto-detect if not specified)",
     )
     parser.add_argument(
         "--device-name",
         default="XIAO Sense IMU",
-        help="スキャンで優先的に探すデバイス名",
+        help="Device name to search for preferentially during scan",
     )
     parser.add_argument(
         "--scan-timeout",
         type=float,
         default=10.0,
-        help="スキャンのタイムアウト秒数",
+        help="Scan timeout in seconds",
     )
     parser.add_argument(
         "--idle-timeout",
         type=float,
         default=None,
-        help="受信が一定秒数途絶えたらエラー終了（未指定で無制限）",
+        help="Exit with error if no data received for specified seconds (unlimited if not specified)",
     )
     parser.add_argument(
         "--log-level",
@@ -45,45 +46,45 @@ def main() -> None:
             "DEBUG",
             "NOTSET",
         ],
-        help="ログレベル（既定: WARNING）",
+        help="Log level (default: WARNING)",
     )
     parser.add_argument(
         "--log-file",
         default=None,
-        help="ログをファイルにも出力（既定: 標準エラーのみ）",
+        help="Also output logs to file (default: stderr only)",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=8050,
-        help="オシロスコープサーバーポート（既定: 8050）",
+        help="Oscilloscope server port (default: 8050)",
     )
     parser.add_argument(
         "--mock",
         action="store_true",
-        help="テスト用のMockデータを使用（BLEデバイス不要）",
+        help="Use mock data for testing (no BLE device required)",
     )
 
-    # CSV出力モードのオプション（デフォルトはオシロスコープ）
+    # CSV output mode options (default is oscilloscope)
     parser.add_argument(
         "--csv",
         action="store_true",
-        help="CSV出力モード（標準出力へCSVを流す）",
+        help="CSV output mode (stream CSV to stdout)",
     )
     parser.add_argument(
         "--no-header",
         action="store_true",
-        help="先頭にヘッダ行を出力しない（CSV出力モード時のみ有効）",
+        help="Do not output header row at the beginning (only valid in CSV output mode)",
     )
     parser.add_argument(
         "--drop-missing-audio",
         action="store_true",
-        help="audioRMS=-1.0 の行を除外（CSV出力モード時のみ有効）",
+        help="Exclude rows with audioRMS=-1.0 (only valid in CSV output mode)",
     )
 
     args = parser.parse_args()
 
-    # ロギング初期化（CSV出力時はstdout、ログはstderr/ファイルへ）
+    # Initialize logging (CSV output to stdout, logs to stderr/file)
     level = getattr(logging, str(args.log_level).upper(), logging.WARNING)
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if args.log_file:
@@ -91,17 +92,17 @@ def main() -> None:
             file_handler = logging.FileHandler(args.log_file, encoding="utf-8")
             handlers.append(file_handler)
         except Exception:
-            # ファイルハンドラに失敗しても実行は継続（stderrにだけ出す）
+            # Continue execution even if file handler fails (output only to stderr)
             pass
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
-        force=True,  # 他のbasicConfigに影響されないよう強制
+        force=True,  # Force to avoid being affected by other basicConfig
     )
 
     if args.csv:
-        # CSV出力モード
+        # CSV output mode
         code = run(
             address=args.address,
             show_header=not args.no_header,
@@ -112,7 +113,7 @@ def main() -> None:
         )
         raise SystemExit(code)
     else:
-        # デフォルト: オシロスコープモード
+        # Default: oscilloscope mode
         from .oscilloscope import create_app
         from .ble_receiver import BleDataSource, MockDataSource
 
@@ -124,7 +125,7 @@ def main() -> None:
         logger.info(f"🔍 Open http://localhost:{args.port} in your browser")
         logger.info("=" * 50)
 
-        # データソースの選択
+        # Select data source
         from .ble_receiver import DataSource
 
         data_source: DataSource
@@ -132,7 +133,7 @@ def main() -> None:
             logger.info("🔧 Using mock data for testing (no BLE device required)")
             data_source = MockDataSource()
         else:
-            # BLE接続を試行、失敗時は明確にエラー終了
+            # Attempt BLE connection, exit with clear error on failure
             if args.address:
                 logger.info(f"🔍 Connecting to specific BLE address: {args.address}")
             else:
@@ -154,7 +155,7 @@ def main() -> None:
                 logger.info("   - Use --mock option for testing without device")
                 raise SystemExit(1)
 
-        # アプリを作成して起動
+        # Create and start application
         try:
             app = create_app(data_source=data_source)
             app.start_data_collection()
