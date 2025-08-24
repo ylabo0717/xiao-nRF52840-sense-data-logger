@@ -1,5 +1,5 @@
 [project]
-name = "xiao-nrf52840-sense-reciever"
+name = "xiao-nrf52840-sense-receiver"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -9,10 +9,13 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "bleak>=1.1.0",
+    "dash>=3.2.0",
+    "pandas>=2.3.2",
+    "plotly>=6.3.0",
 ]
 
 [project.scripts]
-xiao-nrf52840-sense-reciever = "xiao_nrf52840_sense_reciever:main"
+xiao-nrf52840-sense-receiver = "xiao_nrf52840_sense_receiver:main"
 
 [build-system]
 requires = ["uv_build>=0.8.6,<0.9.0"]

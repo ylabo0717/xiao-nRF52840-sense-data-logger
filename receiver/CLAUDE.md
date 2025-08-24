@@ -18,12 +18,37 @@ This document contains critical information about working with this codebase. Fo
    - Follow existing patterns exactly
    - Line length: 88 chars maximum
 
-3. Testing Requirements
+3. Documentation Standards
+   - Style: Google-style docstrings only
+   - Language: English only
+   - Content requirements:
+     - What the code does (functionality)
+     - Why it was implemented this way (design rationale)
+     - Implementation intent and special considerations
+     - Args, Returns, Raises, Yields sections as applicable
+   - Coverage: All public functions, classes, and methods
+   - Private functions: Add docstrings for complex implementations
+   - Translation: Convert all Japanese comments to English docstrings
+
+4. Testing Requirements
    - Framework: `uv run --frozen pytest`
    - Async testing: use anyio, not asyncio
    - Coverage: test edge cases and errors
    - New features require tests
    - Bug fixes require regression tests
+
+5. Logging Standards
+   - NEVER use print() statements in production code
+   - Use Python logging module exclusively for all output
+   - Logger naming: use `logger = logging.getLogger(__name__)`
+   - Log levels:
+     - DEBUG: Detailed diagnostic information
+     - INFO: General information, user-facing status messages
+     - WARNING: Potential issues that don't prevent operation
+     - ERROR: Serious errors that may affect functionality
+   - Exception handling: Log exceptions with appropriate context
+   - CSV output: Only exception is intentional data output (e.g., CSV streams)
+   - Configure logging in main entry points, not individual modules
 
 - For commits fixing bugs or adding features based on user reports add:
 

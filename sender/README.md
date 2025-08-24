@@ -1,222 +1,192 @@
-# XIAO nRF52840 Sense サンプル
+# XIAO nRF52840 Sense Data Logger - Firmware
 
-プロジェクト名: xiao-nrf52840-sense  
-対応ボード: Seeed Studio XIAO nRF52840 Sense  
-フレームワーク: Arduino  
-PlatformIO 環境名: `seeed_xiao_nrf52840_sense`（`platformio.ini` 参照）
+<!-- Language Switcher -->
 
-このリポジトリは、PlatformIO Core（CLI）だけで XIAO nRF52840 系にビルド・書き込み・実行する最小サンプルです。`pio` コマンドのみを使用します。
+**Languages**: [English](./README.md) | [日本語](./README.ja.md)
 
 ---
 
-## 前提条件（Windows + PowerShell）
+## 🚀 Overview
 
-以下がインストールされていることを想定します。
+Firmware for XIAO nRF52840 Sense that collects IMU (LSM6DS3) accelerometer/gyroscope data and PDM microphone audio RMS values, transmitting the data via both USB Serial and BLE UART in CSV format.
 
-- Python 3.8 以上
-- Git（PlatformIO が GitHub からプラットフォームを取得するため）
+### Key Features
 
-任意の導入例:
+- **Multi-sensor Data Collection**: IMU + PDM microphone with timestamp synchronization
+- **Dual Output**: USB Serial (full rate ~100Hz) + BLE (optimized ~25Hz)
+- **Robust BLE**: Auto-reconnection, partial write handling, timeout management
+- **Dynamic Hardware Detection**: I2C address scanning for LSM6DS3 compatibility
 
-Python（未導入なら）
+## 🔧 Hardware Architecture
 
-```powershell
-winget install --id Python.Python.3.12 -e --source winget
-```
+### Target Platform
 
-(Windowsの場合)環境変数設定 PATH に下記を追加してターミナルを再起動(VS Codeの場合はVS Codeを完全再起動)  
+- **Board**: Seeed Studio XIAO nRF52840 Sense
+- **Framework**: Arduino + PlatformIO
+- **Platform**: Custom Seeed platform from GitHub
+- **Environment**: `seeed_xiao_nrf52840_sense`
 
-```
-%LOCALAPPDATA%\Programs\Python\Python312
-%LOCALAPPDATA%\Programs\Python\Python312\Scripts
-%APPDATA%\Python\Python312
-```
+### Hardware Components
 
+- **IMU**: LSM6DS3 accelerometer/gyroscope (I2C addresses 0x6A or 0x6B)
+- **Microphone**: Internal PDM microphone (16kHz, 1-channel, 16-bit)
+- **Connectivity**: BLE Nordic UART Service compatible
+- **I2C**: Primary Wire interface (400kHz), optional Wire1 support
 
-Git（未導入なら）
+## 📊 Data Output Format
 
-```powershell
-winget install --id Git.Git -e --source winget
-```
+CSV fields: `millis,ax,ay,az,gx,gy,gz,tempC,audioRMS`
 
-%HOMEPATH%\.gitconfig を下記のように設定
+- **Serial Output**: ~100Hz full rate with header
+- **BLE Output**: ~25Hz bandwidth-optimized, no header
+- **Audio RMS**: 10ms sliding window (160 samples @ 16kHz), -1.0 for insufficient data
+- **BLE Service**: Nordic UART Service (NUS) with device name "XIAO Sense IMU"
 
-```ini
-[http]
-	sslVerify = false
-[user]
-	name = <your name>
-    email = <your email>
-```
+## 🛠 Development Setup
 
----
+### Prerequisites
 
-## 環境変数の設定
+- **Python**: 3.8+ (for PlatformIO)
+- **Git**: For platform/library management
+- **PlatformIO Core**: CLI-based development environment
 
-環境変数に下記を追加
+### Installation
 
-| 変数名 | 値 |
-|-|-|
-| HTTP_PROXY |http://proxy-sen.noc.sony.co.jp:10080|
-| HTTPS_PROXY |http://proxy-sen.noc.sony.co.jp:10080|
-|NO_PROXY|localhost,127.0.0.1,::1,github.com,api.github.com,api.githubcopilot.com,githubusercontent.com,raw.githubusercontent.com,marketplace.visualstudio.com,vscode.dev,update.code.visualstudio.com|
+1. **Install PlatformIO Core** (recommended: pipx):
 
----
+   ```bash
+   # Install pipx if not available
+   python -m pip install --user pipx
+   python -m pipx ensurepath
 
-## PlatformIO Core (CLI) のインストール
+   # Install PlatformIO
+   pipx install platformio
 
-推奨（pipx を使用）:
+   # Verify installation
+   pio --version
+   ```
 
-pipx の導入（未導入なら）
+2. **Alternative** (direct pip):
+   ```bash
+   python -m pip install --user -U platformio
+   ```
 
-```powershell
-python -m pip install --user pipx
-```
+### Build and Upload
 
-```powershell
-python -m pipx ensurepath
-```
-
-新しい PowerShell を開き直してから実行
-
-```powershell
-pipx install platformio
-```
-
-動作確認
-
-```powershell
-pio --version
-```
-
-代替（pip を直接使用）:
-
-PlatformIO のインストール
-
-```powershell
-python -m pip install --user -U platformio
-```
-
-必要なら PATH を一時反映（セッション内）
-
-```powershell
-$env:Path = "$([Environment]::GetFolderPath('LocalApplicationData'))\Programs\Python\Python$(python -c "import sys;print(str(sys.version_info.major)+str(sys.version_info.minor))")\Scripts;" + $env:Path
-```
-
-動作確認
-
-```powershell
-pio --version
-```
-
----
-
-## プロジェクト取得と構成
-
-リポジトリのクローン
-
-```powershell
-git clone git@github.com:ylabo0717/nextjs-boilerplate.git
-```
-
-ディレクトリ移動
-
-```powershell
-cd xiao-nrf52840-platformio-sample
-```
-
----
-
-## ビルド（コンパイル）
-
-環境は 1 つだけなので `-e` の指定は不要です。
-
-```powershell
+```bash
+# Build firmware
 pio run
-```
 
-成果物例: `.pio\build\seeed_xiao_nrf52840_sense\firmware.hex`
-
----
-
-## 書き込み（Upload）
-
-XIAO nRF52840 系はブートローダ（DFU）モードで書き込みます。
-
-1. リセットボタンを2回カチカチと押してDFUモードにする
-2. 新しい COM ポートが現れることを確認（必要に応じて `pio device list`）。
-3. 書き込み:
-
-```powershell
+# Upload to device (requires DFU mode)
 pio run -t upload
-```
 
-ポートを明示したい場合（例 : COM5）
-
-```powershell
+# Upload to specific port
 pio run -t upload --upload-port COM5
-```
 
----
+# Clean build artifacts
+pio run -t clean
 
-## 実行とシリアルモニタ
-
-スケッチの `setup()`/`loop()` が起動します。シリアルログを見る場合は、スケッチのボーレート（例: 115200bps）に合わせてモニタします。
-
-```powershell
-pio device monitor -b 115200
-```
-
-スケッチは `src/main.cpp` にあります。必要に応じて `setup()` に `Serial.begin(115200);` を追加してください。
-
----
-
-## よく使うコマンド
-
-依存関係・プラットフォームの更新
-
-```powershell
+# Update dependencies/platforms
 pio pkg update
 ```
 
-ビルド
+### Programming Mode
 
-```powershell
-pio run
-```
+XIAO nRF52840 uses bootloader (DFU) mode for programming:
 
-クリーン
+1. **Enter DFU Mode**: Double-click reset button rapidly
+2. **Verify**: New COM port appears (`pio device list` to check)
+3. **Upload**: Run upload command
 
-```powershell
-pio run -t clean
-```
+### Monitoring and Debugging
 
-書き込み
-
-```powershell
-pio run -t upload
-```
-
-シリアルモニタ
-
-```powershell
+```bash
+# Monitor serial output
 pio device monitor -b 115200
+
+# List available devices/ports
+pio device list
 ```
 
----
+## 💻 Code Architecture
 
-## トラブルシュート
+### Main Components (src/main.cpp)
 
-- `pio` が見つからない: 新しい PowerShell を開き直す/パス設定を確認（pipx の場合は `python -m pipx ensurepath` 実行後に再起動）。
-- ボードが見えない/書き込みできない: リセットボタン長押しでブートローダに入ってから再実行。`pio device list` で COM を確認し、必要なら `--upload-port` を使用。
-- 初回取得に失敗: ネットワーク/プロキシ設定を確認し、`pio pkg update` を試す。
-- 権限エラー: PowerShell を管理者として実行、または別 USB ポート/ケーブルを試す。
+1. **IMU Management**:
+   - Dynamic LSM6DS3 initialization with I2C address detection
+   - Retry logic for failed sensor initialization
+   - I2C device scanning during sensor failure
 
----
+2. **PDM Audio Processing**:
+   - Ring buffer for continuous audio capture
+   - RMS calculation with 10ms sliding window
+   - Interrupt-driven PDM with real-time performance
 
-## 参考リンク
+3. **BLE Communication**:
+   - Robust BLE UART with partial write handling
+   - Timeout management and connection recovery
+   - Auto-restart advertising on disconnect
+
+4. **Data Synchronization**:
+   - Timestamped sensor fusion data
+   - CSV output formatting with consistent field structure
+
+### Error Handling
+
+- **IMU Initialization**: Retry every 1 second on failure
+- **I2C Scanning**: Device discovery every 5 seconds during IMU failure
+- **BLE Recovery**: Write timeout and automatic reconnection
+- **Buffer Protection**: PDM ring buffer overflow prevention
+
+## 📋 Dependencies
+
+From `platformio.ini`:
+
+- **Seeed Arduino LSM6DS3**: IMU sensor library
+- **Adafruit Bluefruit nRF52**: BLE stack (included in platform)
+- **Arduino Framework**: nRF52 extensions and core libraries
+
+## 🔧 Configuration
+
+### Hardware Configuration
+
+- **I2C Speed**: 400kHz for optimal sensor performance
+- **BLE MTU**: Optimized for data throughput
+- **Audio Sampling**: 16kHz PDM with 10ms RMS windows
+
+### Data Rate Optimization
+
+- **Serial**: Full sensor rate (~100Hz) with all data
+- **BLE**: Bandwidth-limited rate (~25Hz) with same data precision
+- **Audio**: Continuous capture with RMS reporting at data rate
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+- **PlatformIO not found**: Restart terminal/IDE after installation, verify PATH
+- **Board not detected**: Enter DFU mode (double-click reset), check with `pio device list`
+- **Upload failure**: Try different USB port/cable, verify DFU mode, use `--upload-port`
+- **Initial build failure**: Check network/proxy settings, run `pio pkg update`
+- **Permission errors**: Run as administrator or try different USB port
+
+### Hardware Issues
+
+- **No IMU data**: Check I2C connections, verify LSM6DS3 power
+- **No audio data**: PDM microphone may need initialization delay
+- **BLE connection issues**: Verify device advertising, check BLE stack on receiver
+
+## 📚 Reference Documentation
 
 - [PlatformIO Core (CLI)](https://docs.platformio.org/en/latest/core/index.html)
-- [Seeed XIAO nRF52840](https://wiki.seeedstudio.com/XIAO_BLE/)
 - [Seeed XIAO nRF52840 Sense](https://wiki.seeedstudio.com/XIAO_BLE_Sense/)
+- [LSM6DS3 Datasheet](https://www.st.com/resource/en/datasheet/lsm6ds3.pdf)
+- [Nordic UART Service Specification](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/bluetooth_services/services/nus.html)
 
+## ⚡ Performance Notes
+
+- **Serial Output**: Always active, full sensor rate
+- **BLE Output**: Only when connected and notifications enabled
+- **Audio Processing**: Interrupt-driven for real-time performance
+- **Memory Usage**: Ring buffer design minimizes RAM requirements
+- **Power Efficiency**: Optimized BLE parameters for battery operation
