@@ -11,8 +11,8 @@ import asyncio
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 try:
-    from xiao_nrf52840_sense_reciever.ble_receiver import BleDataSource
-    from xiao_nrf52840_sense_reciever.oscilloscope import create_app
+    from xiao_nrf52840_sense_reciever.ble_receiver import BleDataSource  # type: ignore
+    from xiao_nrf52840_sense_reciever.oscilloscope import create_app  # type: ignore
 
     print("✓ Successfully imported BLE oscilloscope modules")
 
