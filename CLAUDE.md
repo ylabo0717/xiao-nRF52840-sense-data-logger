@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Rules
+
+- All responses must be written in Japanese.
+
 ## Project Overview
 
 This is a dual-component XIAO nRF52840 Sense sensor data logger system:
