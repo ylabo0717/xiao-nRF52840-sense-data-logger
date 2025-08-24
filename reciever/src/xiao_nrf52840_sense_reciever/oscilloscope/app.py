@@ -8,9 +8,9 @@ from typing import Optional
 
 import dash  # type: ignore
 from dash import dcc, html, Input, Output
-import plotly.graph_objects as go  # type: ignore
 
 from ..ble_receiver import DataBuffer, DataSource, MockDataSource
+from .plots import create_multi_plot_layout
 
 
 class OscilloscopeApp:
@@ -61,13 +61,14 @@ class OscilloscopeApp:
                     ],
                     style={"margin": "20px"},
                 ),
-                # Accelerometer plot
+                # Multi-sensor plots
                 html.Div(
                     [
-                        html.H3(
-                            "Accelerometer Data (g)", style={"textAlign": "center"}
+                        dcc.Graph(
+                            id="multi-plot",
+                            config={"displayModeBar": True},
+                            style={"height": "650px"},
                         ),
-                        dcc.Graph(id="accel-plot", config={"displayModeBar": True}),
                     ]
                 ),
                 # Update interval component
@@ -84,7 +85,7 @@ class OscilloscopeApp:
 
         @self.app.callback(  # type: ignore
             [
-                Output("accel-plot", "figure"),
+                Output("multi-plot", "figure"),
                 Output("connection-status", "children"),
                 Output("buffer-stats", "children"),
             ],
@@ -95,82 +96,8 @@ class OscilloscopeApp:
             data = self.buffer.get_recent(500)  # Show last 500 points
             stats = self.buffer.stats
 
-            # Create accelerometer plot
-            accel_fig = go.Figure()
-
-            if data:
-                # Convert to pandas for easier handling
-                timestamps = [
-                    (row.millis - data[0].millis) / 1000.0 for row in data
-                ]  # Relative time in seconds
-                ax_data = [row.ax for row in data]
-                ay_data = [row.ay for row in data]
-                az_data = [row.az for row in data]
-
-                accel_fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=ax_data,
-                        mode="lines",
-                        name="X-axis",
-                        line=dict(color="red", width=2),
-                    )
-                )
-
-                accel_fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=ay_data,
-                        mode="lines",
-                        name="Y-axis",
-                        line=dict(color="green", width=2),
-                    )
-                )
-
-                accel_fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=az_data,
-                        mode="lines",
-                        name="Z-axis",
-                        line=dict(color="blue", width=2),
-                    )
-                )
-
-                accel_fig.update_layout(
-                    title="Accelerometer Data",
-                    xaxis_title="Time (seconds)",
-                    yaxis_title="Acceleration (g)",
-                    showlegend=True,
-                    height=400,
-                    margin=dict(l=50, r=50, t=50, b=50),
-                )
-
-                # Set axis ranges for better visualization
-                accel_fig.update_xaxes(
-                    range=[
-                        timestamps[0] if timestamps else 0,
-                        timestamps[-1] if timestamps else 10,
-                    ]
-                )
-                accel_fig.update_yaxes(range=[-2, 2])  # Typical accelerometer range
-
-            else:
-                accel_fig.add_annotation(
-                    x=0.5,
-                    y=0.5,
-                    text="No data available",
-                    showarrow=False,
-                    xref="paper",
-                    yref="paper",
-                    font=dict(size=20, color="gray"),
-                )
-                accel_fig.update_layout(
-                    title="Accelerometer Data",
-                    xaxis_title="Time (seconds)",
-                    yaxis_title="Acceleration (g)",
-                    height=400,
-                )
+            # Create multi-sensor plot layout
+            multi_fig = create_multi_plot_layout(data)
 
             # Connection status
             connection_status = "Connected" if self.buffer.size > 0 else "Disconnected"
@@ -179,14 +106,14 @@ class OscilloscopeApp:
             # Buffer statistics
             buffer_info = html.Div(
                 [
-                    html.P(f"Buffer Size: {stats.fill_level}/1000"),
+                    html.P(f"Buffer Size: {stats.fill_level}/{self.buffer.max_size}"),
                     html.P(f"Sample Rate: {stats.sample_rate:.1f} Hz"),
                     html.P(f"Data Points: {len(data)}"),
                 ]
             )
 
             return (
-                accel_fig,
+                multi_fig,
                 html.Span(connection_status, style=status_style),
                 buffer_info,
             )

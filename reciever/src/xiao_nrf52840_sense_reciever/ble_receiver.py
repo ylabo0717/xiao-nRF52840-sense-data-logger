@@ -97,6 +97,7 @@ class DataBuffer:
     """Thread-safe circular buffer for IMU data."""
 
     def __init__(self, max_size: int = 1000):
+        self._max_size = max_size
         self._buffer: deque[ImuRow] = deque(maxlen=max_size)
         self._lock = threading.RLock()
         self._stats = BufferStats()
@@ -139,6 +140,11 @@ class DataBuffer:
         """Get current buffer size."""
         with self._lock:
             return len(self._buffer)
+
+    @property
+    def max_size(self) -> int:
+        """Get maximum buffer size."""
+        return self._max_size
 
 
 class DataSource(ABC):
