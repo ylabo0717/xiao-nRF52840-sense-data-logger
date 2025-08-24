@@ -40,20 +40,43 @@ A dual-component sensor data logging system for XIAO nRF52840 Sense microcontrol
 
 ### 1. Firmware Setup
 
+Navigate to sender directory:
 ```bash
 cd sender/
-pio run                    # Build firmware
-pio run -t upload         # Upload (requires DFU mode - double-click reset)
-pio device monitor -b 115200  # Monitor serial output
+```
+
+Build firmware:
+```bash
+pio run
+```
+
+Upload firmware
+```bash
+pio run -t upload
+```
+
+Monitor serial output:
+```bash
+pio device monitor -b 115200
 ```
 
 ### 2. Data Reception
 
 #### Web Oscilloscope (Default)
+
+Navigate to receiver directory:
 ```bash
 cd receiver/
-uv sync                   # Install dependencies
-uv run xiao-nrf52840-sense-receiver          # Start web interface
+```
+
+Install dependencies:
+```bash
+uv sync
+```
+
+Start web interface:
+```bash
+uv run xiao-nrf52840-sense-receiver
 ```
 
 **📊 Access the oscilloscope**: Open [http://localhost:8050](http://localhost:8050) in your web browser
@@ -67,6 +90,8 @@ The web interface provides:
 - **Connection status**: Live monitoring of BLE connection health
 
 #### CSV Export Mode
+
+Enable CSV output mode:
 ```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 ```
@@ -120,17 +145,3 @@ See [receiver/README.md](./receiver/README.md) for Python development guidelines
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📞 Support
-
-For technical support and questions:
-- Check component-specific README files in `sender/` and `receiver/`
-- Review hardware documentation: [XIAO nRF52840 Sense](https://wiki.seeedstudio.com/XIAO_BLE_Sense/)
-- Report issues via GitHub Issues

@@ -40,20 +40,43 @@ XIAO nRF52840 Sense マイクロコントローラー用の2コンポーネン�
 
 ### 1. ファームウェアセットアップ
 
+senderディレクトリに移動:
 ```bash
 cd sender/
-pio run                    # ファームウェアビルド
-pio run -t upload         # アップロード（DFUモード必要 - リセットボタン2回押し）
-pio device monitor -b 115200  # シリアル出力監視
+```
+
+ファームウェアビルド:
+```bash
+pio run
+```
+
+アップロード
+```bash
+pio run -t upload
+```
+
+シリアル出力監視:
+```bash
+pio device monitor -b 115200
 ```
 
 ### 2. データ受信
 
 #### Webオシロスコープ（デフォルト）
+
+receiverディレクトリに移動:
 ```bash
 cd receiver/
-uv sync                   # 依存関係インストール
-uv run xiao-nrf52840-sense-receiver          # Webインターフェース起動
+```
+
+依存関係インストール:
+```bash
+uv sync
+```
+
+Webインターフェース起動:
+```bash
+uv run xiao-nrf52840-sense-receiver
 ```
 
 **📊 オシロスコープにアクセス**: ブラウザで [http://localhost:8050](http://localhost:8050) を開く
@@ -67,6 +90,8 @@ Webインターフェースの機能:
 - **接続状態**: BLE接続の健全性をリアルタイム監視
 
 #### CSVエクスポートモード
+
+CSV出力モードを有効化:
 ```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 ```
@@ -120,17 +145,3 @@ Python開発ガイドラインとAPI文書については[receiver/README.md](./
 
 このプロジェクトはMITライセンスの下でライセンスされています。詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
-## 🤝 貢献
-
-1. リポジトリをフォーク
-2. フィーチャーブランチを作成（`git checkout -b feature/amazing-feature`）
-3. 変更をコミット（`git commit -m 'Add amazing feature'`）
-4. ブランチにプッシュ（`git push origin feature/amazing-feature`）
-5. プルリクエストを開く
-
-## 📞 サポート
-
-技術サポートと質問については：
-- `sender/`と`receiver/`のコンポーネント固有のREADMEファイルを確認
-- ハードウェア文書の確認: [XIAO nRF52840 Sense](https://wiki.seeedstudio.com/XIAO_BLE_Sense/)
-- GitHub Issuesでの問題報告

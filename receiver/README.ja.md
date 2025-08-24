@@ -69,23 +69,33 @@ uv sync
 
 プロジェクト仮想環境から実行：
 
+デフォルト使用法 - Webオシロスコープ起動:
 ```bash
-# デフォルト使用法 - Webオシロスコープ起動
-uv run xiao-nrf52840-sense-receiver          # ブラウザでhttp://localhost:8050を開く
+uv run xiao-nrf52840-sense-receiver
+```
 
-# CSV出力モード - クリーンな出力でデータ受信
+CSV出力モード - クリーンな出力でデータ受信:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+```
 
-# カスタムポートでオシロスコープ
+カスタムポートでオシロスコープ:
+```bash
 uv run xiao-nrf52840-sense-receiver --port 9000
+```
 
-# CSVモードでタイムアウト保護 - 5秒間データがなければ終了
+CSVモードでタイムアウト保護 - 5秒間データがなければ終了:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --idle-timeout 5
+```
 
-# CSVデータをファイル保存
+CSVデータをファイル保存:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header > sensor_data.csv
+```
 
-# デバイスアドレス直接指定（スキャンをスキップ）
+デバイスアドレス直接指定（スキャンをスキップ）:
+```bash
 uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 ```
 
@@ -93,13 +103,23 @@ uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 
 システム全体のツールとしてインストール（一度のみセットアップ）：
 
+現在のディレクトリからグローバルにツールをインストール:
 ```bash
-# 現在のディレクトリからグローバルにツールをインストール
 uv tool install .
+```
 
-# インストール後はどこからでも実行可能
-uvx xiao-nrf52840-sense-receiver                                           # オシロスコープ起動
+どこからでもオシロスコープ起動:
+```bash
+uvx xiao-nrf52840-sense-receiver
+```
+
+CSVモードでクリーンな出力:
+```bash
 uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+```
+
+CSVモードでタイムアウト:
+```bash
 uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
 
@@ -217,17 +237,23 @@ millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
 
 ### コード品質ツール
 
+コードフォーマット:
 ```bash
-# コードフォーマット
 uv run --frozen ruff format .
+```
 
-# コードリント
+コードリント:
+```bash
 uv run --frozen ruff check .
+```
 
-# 型チェック
+型チェック:
+```bash
 uv run --frozen pyright
+```
 
-# テスト実行
+テスト実行:
+```bash
 uv run --frozen pytest
 ```
 
@@ -241,14 +267,18 @@ uv run --frozen pytest
 
 ### 依存関係追加
 
+ランタイム依存関係を追加:
 ```bash
-# ランタイム依存関係を追加
 uv add package-name
+```
 
-# 開発依存関係を追加
+開発依存関係を追加:
+```bash
 uv add --dev package-name
+```
 
-# 特定パッケージをアップグレード
+特定パッケージをアップグレード:
+```bash
 uv add package-name --upgrade-package package-name
 ```
 

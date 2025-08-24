@@ -69,23 +69,33 @@ This creates an isolated Python environment with all required dependencies inclu
 
 Run from project virtual environment:
 
+Default usage - start web oscilloscope:
 ```bash
-# Default usage - start web oscilloscope
-uv run xiao-nrf52840-sense-receiver          # Open http://localhost:8050 in your browser
+uv run xiao-nrf52840-sense-receiver
+```
 
-# CSV output mode - receive data with clean output
+CSV output mode - receive data with clean output:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+```
 
-# Oscilloscope with custom port
+Oscilloscope with custom port:
+```bash
 uv run xiao-nrf52840-sense-receiver --port 9000
+```
 
-# CSV mode with timeout protection - exit if no data for 5 seconds
+CSV mode with timeout protection - exit if no data for 5 seconds:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --idle-timeout 5
+```
 
-# Save CSV data to file
+Save CSV data to file:
+```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header > sensor_data.csv
+```
 
-# Specify device address directly (skip scanning)
+Specify device address directly (skip scanning):
+```bash
 uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 ```
 
@@ -93,13 +103,23 @@ uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 
 Install as system-wide tool (one-time setup):
 
+Install tool globally from current directory:
 ```bash
-# Install tool globally from current directory
 uv tool install .
+```
 
-# Run from anywhere after installation
-uvx xiao-nrf52840-sense-receiver                                    # Start oscilloscope
+Run oscilloscope from anywhere after installation:
+```bash
+uvx xiao-nrf52840-sense-receiver
+```
+
+CSV mode with clean output:
+```bash
 uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+```
+
+CSV mode with timeout:
+```bash
 uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
 
@@ -217,17 +237,23 @@ millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
 
 ### Code Quality Tools
 
+Format code:
 ```bash
-# Format code
 uv run --frozen ruff format .
+```
 
-# Lint code
+Lint code:
+```bash
 uv run --frozen ruff check .
+```
 
-# Type checking
+Type checking:
+```bash
 uv run --frozen pyright
+```
 
-# Run tests
+Run tests:
+```bash
 uv run --frozen pytest
 ```
 
@@ -241,14 +267,18 @@ uv run --frozen pytest
 
 ### Adding Dependencies
 
+Add runtime dependency:
 ```bash
-# Add runtime dependency
 uv add package-name
+```
 
-# Add development dependency
+Add development dependency:
+```bash
 uv add --dev package-name
+```
 
-# Upgrade specific package
+Upgrade specific package:
+```bash
 uv add package-name --upgrade-package package-name
 ```
 
