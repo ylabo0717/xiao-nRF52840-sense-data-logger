@@ -13,9 +13,15 @@ XIAO nRF52840 Sense (NUS 互換) から BLE 経由で CSV テレメトリを受�
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import logging
-from typing import AsyncIterator, Callable, Iterable, Optional
+import math
+import random
+import threading
+import time
+from abc import ABC, abstractmethod
+from collections import deque
+from dataclasses import dataclass
+from typing import AsyncGenerator, AsyncIterator, Callable, Iterable, Optional
 
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
@@ -67,6 +73,209 @@ class ImuRow:
             tempC=tempC,
             audioRMS=audioRMS,
         )
+
+
+@dataclass
+class BufferStats:
+    """Statistics about the data buffer."""
+
+    fill_level: int = 0
+    sample_rate: float = 0.0
+    last_update: float = 0.0
+
+    def update(self, row: ImuRow) -> None:
+        """Update statistics with new data."""
+        current_time = time.time()
+        if self.last_update > 0:
+            time_diff = current_time - self.last_update
+            if time_diff > 0:
+                self.sample_rate = 1.0 / time_diff
+        self.last_update = current_time
+
+
+class DataBuffer:
+    """Thread-safe circular buffer for IMU data."""
+
+    def __init__(self, max_size: int = 1000):
+        self._buffer: deque[ImuRow] = deque(maxlen=max_size)
+        self._lock = threading.RLock()
+        self._stats = BufferStats()
+
+    def append(self, row: ImuRow) -> None:
+        """Add a new data row to the buffer."""
+        with self._lock:
+            self._buffer.append(row)
+            self._stats.fill_level = len(self._buffer)
+            self._stats.update(row)
+
+    def get_recent(self, count: int) -> list[ImuRow]:
+        """Get the most recent N data points."""
+        with self._lock:
+            return (
+                list(self._buffer)[-count:]
+                if count <= len(self._buffer)
+                else list(self._buffer)
+            )
+
+    def get_all(self) -> list[ImuRow]:
+        """Get all data points in the buffer."""
+        with self._lock:
+            return list(self._buffer)
+
+    def clear(self) -> None:
+        """Clear all data from the buffer."""
+        with self._lock:
+            self._buffer.clear()
+            self._stats.fill_level = 0
+
+    @property
+    def stats(self) -> BufferStats:
+        """Get buffer statistics."""
+        with self._lock:
+            return self._stats
+
+    @property
+    def size(self) -> int:
+        """Get current buffer size."""
+        with self._lock:
+            return len(self._buffer)
+
+
+class DataSource(ABC):
+    """Abstract base class for data sources."""
+
+    @abstractmethod
+    async def is_connected(self) -> bool:
+        """Check if the data source is connected."""
+        pass
+
+    @abstractmethod
+    async def start(self) -> None:
+        """Start the data source."""
+        pass
+
+    @abstractmethod
+    async def stop(self) -> None:
+        """Stop the data source."""
+        pass
+
+    @abstractmethod
+    def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
+        """Get an async generator that yields IMU data rows."""
+        pass
+
+
+class BleDataSource(DataSource):
+    """BLE data source adapter for existing BLE receiver."""
+
+    def __init__(self) -> None:
+        self._connected = False
+
+    async def is_connected(self) -> bool:
+        return self._connected
+
+    async def start(self) -> None:
+        self._connected = True
+
+    async def stop(self) -> None:
+        self._connected = False
+
+    async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
+        """Get BLE data stream using the existing stream_rows function."""
+        self._connected = True
+        try:
+            async for row in stream_rows():
+                yield row
+        except Exception:
+            self._connected = False
+            raise
+        finally:
+            self._connected = False
+
+
+class MockDataSource(DataSource):
+    """Mock data source for testing and development."""
+
+    def __init__(self, update_interval: float = 0.04):  # 25Hz
+        self._connected = False
+        self._running = False
+        self._update_interval = update_interval
+        self._start_time = time.time()
+
+    async def is_connected(self) -> bool:
+        return self._connected
+
+    async def start(self) -> None:
+        self._connected = True
+        self._running = True
+        self._start_time = time.time()
+
+    async def stop(self) -> None:
+        self._connected = False
+        self._running = False
+
+    async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
+        """Generate mock IMU data."""
+        self._connected = True
+        self._running = True
+
+        try:
+            counter = 0
+            while self._running:
+                current_time = time.time()
+                elapsed = current_time - self._start_time
+
+                # Generate sinusoidal data with some noise
+                ax = 0.5 * math.sin(2 * math.pi * 0.5 * elapsed) + random.gauss(0, 0.1)
+                ay = 0.3 * math.cos(2 * math.pi * 0.3 * elapsed) + random.gauss(0, 0.1)
+                az = (
+                    1.0
+                    + 0.2 * math.sin(2 * math.pi * 0.1 * elapsed)
+                    + random.gauss(0, 0.05)
+                )
+
+                gx = 10.0 * math.sin(2 * math.pi * 0.8 * elapsed) + random.gauss(0, 2.0)
+                gy = 15.0 * math.cos(2 * math.pi * 0.6 * elapsed) + random.gauss(0, 2.0)
+                gz = 5.0 * math.sin(2 * math.pi * 0.4 * elapsed) + random.gauss(0, 1.0)
+
+                tempC = (
+                    25.0
+                    + 3.0 * math.sin(2 * math.pi * 0.01 * elapsed)
+                    + random.gauss(0, 0.5)
+                )
+
+                # Audio RMS with some random dropouts (-1 indicates missing data)
+                if random.random() > 0.1:  # 90% data availability
+                    audioRMS = abs(
+                        1000.0 * math.sin(2 * math.pi * 2.0 * elapsed)
+                    ) + random.gauss(0, 50.0)
+                else:
+                    audioRMS = -1.0
+
+                millis = int(elapsed * 1000)
+
+                row = ImuRow(
+                    millis=millis,
+                    ax=ax,
+                    ay=ay,
+                    az=az,
+                    gx=gx,
+                    gy=gy,
+                    gz=gz,
+                    tempC=tempC,
+                    audioRMS=audioRMS,
+                )
+
+                yield row
+                counter += 1
+
+                await asyncio.sleep(self._update_interval)
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._connected = False
+            self._running = False
 
 
 logger = logging.getLogger(__name__)
