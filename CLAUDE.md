@@ -36,7 +36,7 @@ pio device monitor -b 115200  # Monitor serial output
 ```bash
 cd receiver/
 uv sync                   # Install dependencies
-uv run xiao-nrf52840-sense-reciever --no-header --drop-missing-audio
+uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 ```
 
 ## System Architecture

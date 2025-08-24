@@ -13,7 +13,7 @@ pio device monitor -b 115200  # Monitor serial output
 
 ### Package Management (CRITICAL: ONLY use uv, NEVER pip)
 ```bash
-cd reciever/
+cd receiver/
 uv sync                   # Install dependencies
 uv add package            # Add new dependency
 uv run tool               # Run any tool
@@ -22,7 +22,7 @@ uv add --dev package --upgrade-package package  # Upgrade packages
 
 ### Application
 ```bash
-uv run xiao-nrf52840-sense-reciever --no-header --drop-missing-audio
+uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 ```
 
 ### Development Tools
@@ -61,7 +61,7 @@ git commit -m "message"   # Commit changes
 /serena activate project-path
 
 # Common development workflow
-cd reciever/
+cd receiver/
 uv sync
 uv run --frozen ruff format .
 uv run --frozen ruff check . --fix

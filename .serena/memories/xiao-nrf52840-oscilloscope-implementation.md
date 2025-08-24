@@ -53,8 +53,8 @@ BLE Device → DataSource → DataBuffer → [UI Thread + Recording Thread]
 
 ## File Structure
 ```
-reciever/
-├── src/xiao_nrf52840_sense_reciever/
+receiver/
+├── src/xiao_nrf52840_sense_receiver/
 │   ├── __init__.py              # CLI entry point with oscilloscope integration
 │   ├── ble_receiver.py          # Enhanced DataBuffer + BLE/Mock sources
 │   ├── data_recorder.py         # Complete recording system (NEW)
@@ -70,12 +70,12 @@ reciever/
 
 ### Real Device Connection
 ```bash
-uv run xiao-nrf52840-sense-reciever --oscilloscope --port 8050
+uv run xiao-nrf52840-sense-receiver --oscilloscope --port 8050
 ```
 
 ### Testing Mode
 ```bash
-uv run xiao-nrf52840-sense-reciever --oscilloscope --mock --port 8050
+uv run xiao-nrf52840-sense-receiver --oscilloscope --mock --port 8050
 ```
 
 ### BLE Diagnostics

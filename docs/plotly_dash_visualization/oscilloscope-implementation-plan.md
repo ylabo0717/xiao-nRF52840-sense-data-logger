@@ -3,8 +3,8 @@
 ## Project Structure
 
 ```
-reciever/
-├── src/xiao_nrf52840_sense_reciever/
+receiver/
+├── src/xiao_nrf52840_sense_receiver/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── ble_receiver.py          # Existing BLE receiver
@@ -174,15 +174,15 @@ dev = [
 
 ```bash
 # Existing CSV output mode (unchanged)
-uv run xiao-nrf52840-sense-reciever --no-header --drop-missing-audio
+uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 
 # New oscilloscope mode
-uv run xiao-nrf52840-sense-reciever --oscilloscope
-uv run xiao-nrf52840-sense-reciever --oscilloscope --port 8050
-uv run xiao-nrf52840-sense-reciever --oscilloscope --buffer-size 2000
+uv run xiao-nrf52840-sense-receiver --oscilloscope
+uv run xiao-nrf52840-sense-receiver --oscilloscope --port 8050
+uv run xiao-nrf52840-sense-receiver --oscilloscope --buffer-size 2000
 
 # Development mode with mock data
-uv run xiao-nrf52840-sense-reciever --oscilloscope --mock
+uv run xiao-nrf52840-sense-receiver --oscilloscope --mock
 ```
 
 ### Configuration Options

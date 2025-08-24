@@ -912,7 +912,7 @@ wheels = [
 ]
 
 [[package]]
-name = "xiao-nrf52840-sense-reciever"
+name = "xiao-nrf52840-sense-receiver"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

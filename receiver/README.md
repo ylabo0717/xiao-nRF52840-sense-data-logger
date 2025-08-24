@@ -34,13 +34,13 @@ uv sync
 
 ```pwsh
 # ヘッダ無し・audioRMS の欠損行を除外して受信
-uv run xiao-nrf52840-sense-reciever --no-header --drop-missing-audio
+uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 
 # 受信が5秒以上途絶えたら終了（ハング防止）
-uv run xiao-nrf52840-sense-reciever --idle-timeout 5
+uv run xiao-nrf52840-sense-receiver --idle-timeout 5
 
 # CSV をファイル保存
-uv run xiao-nrf52840-sense-reciever > out.csv
+uv run xiao-nrf52840-sense-receiver > out.csv
 ```
 
 1. ツール（global-like）として実行
@@ -54,10 +54,10 @@ uv tool install .
 以後、どこからでも以下のように実行できます。
 
 ```pwsh
-uvx xiao-nrf52840-sense-reciever --no-header --drop-missing-audio
+uvx xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 
 # 受信が10秒以上途絶えたら終了
-uvx xiao-nrf52840-sense-reciever --idle-timeout 10
+uvx xiao-nrf52840-sense-receiver --idle-timeout 10
 ```
 
 ### オプション

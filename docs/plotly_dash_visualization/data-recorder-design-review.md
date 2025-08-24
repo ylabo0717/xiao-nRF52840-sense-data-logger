@@ -18,10 +18,10 @@
 
 対象ファイル:
 
-- `reciever/src/xiao_nrf52840_sense_reciever/ble_receiver.py`
+- `receiver/src/xiao_nrf52840_sense_receiver/ble_receiver.py`
   - `DataBuffer`: `deque(maxlen)`＋`RLock`、`append()/get_recent()/get_all()`、`BufferStats` は直近間隔から瞬間レートを算出。
   - `ImuRow` 定義は設計と一致（millis, ax..audioRMS）。
-- `reciever/src/.../oscilloscope/app.py`
+- `receiver/src/.../oscilloscope/app.py`
   - データ採取は別スレッドで `asyncio` ループを立てて実行。UI は Dash のコールバックで `DataBuffer` を参照。
 - 差分/ギャップ
   - 設計の「lock-free」「index-based access（get_samples_since_index）」が未提供。deque では古いデータが自然に消えるため、外部に単調増加のグローバルインデックスを露出する仕掛けが必要。
@@ -166,7 +166,7 @@
 ## 次アクション（Phase 1 実装指針）
 
 1. `DataBuffer` に index API を追加（上記契約で）。
-2. `reciever/src/.../oscilloscope/recorder/` を新設し、`RecorderManager` と `RecordingWorker` を実装。
+2. `receiver/src/.../oscilloscope/recorder/` を新設し、`RecorderManager` と `RecordingWorker` を実装。
 3. Writer は同期I/O版で先行実装（flush 方針: 1秒 or 100行）。
 4. メタ生成とエラー/警告ログ整備（空き容量チェック含む）。
 5. MockDataSource での E2E テストを追加。

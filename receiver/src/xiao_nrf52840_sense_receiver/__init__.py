@@ -9,7 +9,7 @@ from .ble_receiver import run
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="xiao-nrf52840-sense-reciever",
+        prog="xiao-nrf52840-sense-receiver",
         description="XIAO nRF52840 Sense から BLE (NUS) 経由で CSV テレメトリを受信して標準出力へ流します。",
     )
     parser.add_argument(
