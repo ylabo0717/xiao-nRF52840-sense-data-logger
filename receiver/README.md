@@ -71,7 +71,7 @@ Run from project virtual environment:
 
 ```bash
 # Default usage - start web oscilloscope
-uv run xiao-nrf52840-sense-receiver
+uv run xiao-nrf52840-sense-receiver          # Open http://localhost:8050 in your browser
 
 # CSV output mode - receive data with clean output
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
@@ -102,6 +102,19 @@ uvx xiao-nrf52840-sense-receiver                                    # Start osci
 uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
+
+### 🌐 Web Oscilloscope Interface
+
+After starting the oscilloscope, open **[http://localhost:8050](http://localhost:8050)** in your web browser:
+
+![Oscilloscope Interface](./images/oscilloscope-screenshot.png)
+
+**Key Features:**
+- **Real-time Plotting**: Live sensor data visualization with auto-updating graphs
+- **Interactive Controls**: Zoom, pan, and autoscale functionality for detailed analysis  
+- **Multi-sensor Display**: Simultaneous view of accelerometer, gyroscope, temperature, and audio data
+- **Recording Tools**: Start/stop data recording with session management
+- **Connection Monitoring**: Real-time BLE connection status and data rate information
 
 ## ⚙️ Command Line Options
 

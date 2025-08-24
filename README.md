@@ -53,8 +53,18 @@ pio device monitor -b 115200  # Monitor serial output
 ```bash
 cd receiver/
 uv sync                   # Install dependencies
-uv run xiao-nrf52840-sense-receiver          # Start web interface at http://localhost:8050
+uv run xiao-nrf52840-sense-receiver          # Start web interface
 ```
+
+**📊 Access the oscilloscope**: Open [http://localhost:8050](http://localhost:8050) in your web browser
+
+![Oscilloscope Interface](./receiver/images/oscilloscope-screenshot.png)
+
+The web interface provides:
+- **Real-time sensor plots**: Accelerometer, gyroscope, temperature, and audio data
+- **Interactive controls**: Pan, zoom, autoscale, and plot visibility toggles
+- **Recording functionality**: Capture data sessions with timestamps
+- **Connection status**: Live monitoring of BLE connection health
 
 #### CSV Export Mode
 ```bash

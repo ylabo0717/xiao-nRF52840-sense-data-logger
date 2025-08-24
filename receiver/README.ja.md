@@ -71,7 +71,7 @@ uv sync
 
 ```bash
 # デフォルト使用法 - Webオシロスコープ起動
-uv run xiao-nrf52840-sense-receiver
+uv run xiao-nrf52840-sense-receiver          # ブラウザでhttp://localhost:8050を開く
 
 # CSV出力モード - クリーンな出力でデータ受信
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
@@ -102,6 +102,19 @@ uvx xiao-nrf52840-sense-receiver                                           # オ
 uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
+
+### 🌐 Webオシロスコープインターフェース
+
+オシロスコープ起動後、ブラウザで **[http://localhost:8050](http://localhost:8050)** を開いてください：
+
+![オシロスコープインターフェース](docs/images/oscilloscope-screenshot.png)
+
+**主要機能:**
+- **リアルタイムプロット**: 自動更新グラフによるライブセンサーデータ可視化
+- **インタラクティブ制御**: 詳細解析用のズーム、パン、自動スケール機能
+- **マルチセンサー表示**: 加速度計、ジャイロスコープ、温度、音声データの同時表示
+- **記録ツール**: セッション管理付きデータ記録の開始/停止
+- **接続監視**: リアルタイムBLE接続状態とデータレート情報
 
 ## ⚙️ コマンドラインオプション
 

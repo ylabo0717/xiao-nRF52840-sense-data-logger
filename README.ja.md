@@ -53,8 +53,18 @@ pio device monitor -b 115200  # シリアル出力監視
 ```bash
 cd receiver/
 uv sync                   # 依存関係インストール
-uv run xiao-nrf52840-sense-receiver          # http://localhost:8050でWebインターフェース起動
+uv run xiao-nrf52840-sense-receiver          # Webインターフェース起動
 ```
+
+**📊 オシロスコープにアクセス**: ブラウザで [http://localhost:8050](http://localhost:8050) を開く
+
+![オシロスコープインターフェース](./receiver/images/oscilloscope-screenshot.png)
+
+Webインターフェースの機能:
+- **リアルタイムセンサープロット**: 加速度計、ジャイロスコープ、温度、音声データ
+- **インタラクティブ制御**: パン、ズーム、自動スケール、プロット表示切替
+- **記録機能**: タイムスタンプ付きデータセッション記録
+- **接続状態**: BLE接続の健全性をリアルタイム監視
 
 #### CSVエクスポートモード
 ```bash
