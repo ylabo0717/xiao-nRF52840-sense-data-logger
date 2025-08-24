@@ -33,7 +33,9 @@
       "Bash(uv sync:*)",
       "Bash(uv run:*)",
       "mcp__serena__activate_project",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot"
     ],
     "deny": [
       "Bash(sudo *)",
