@@ -39,12 +39,12 @@
 
 ## 改善提案（重要度順）
 
-1) ループ構成の簡素化（推奨・高）
+1. ループ構成の簡素化（推奨・高）
 
 - 現提案の `BufferMonitor(async)`＋`AsyncFileWriter` は、既存の採取スレッド（独自イベントループ）と併用するとイベントループが2つ以上になり、停止・例外ハンドリング・終了順序が複雑化。
 - 代替案（推奨）: 「録音ワーカースレッド」を1本立て、`queue.Queue` で `ImuRow` または事前整形済みCSV行をバッチ転送。ワーカー内は標準の `csv`＋`io.TextIOWrapper(buffered)` で同期書込み、一定件数/秒で flush。UI/採取とは完全分離でシンプル。
 
-1) DataBuffer のインデックスAPI設計（高）
+1. DataBuffer のインデックスAPI設計（高）
 
 - 必要な契約（Contract）
   - 入力: last_index（呼び出し側が保持）
@@ -55,25 +55,25 @@
   - 取得は `last_index < base_index` の場合に `dropped=True` とし、`list(self._buffer)` のスライスから該当分を返す（O(n) コピーは発生するが 25–100Hz かつバッチで十分）。
   - ロックは短時間（コピーのみ）で、採取スレッドはほぼ非ブロッキングを維持。
 
-1) バックプレッシャと安全策（高）
+1. バックプレッシャと安全策（高）
 
 - 記録キュー長がしきい値超過時の方針を定義（例: ドロップ/停止/圧縮/警告）。初期は「古い記録バッチからドロップ＋UI警告」を推奨。
 - ディスク空き監視（`shutil.disk_usage`）を開始前と定期的に実行し、閾値（例: 残り < 500MB）で停止/警告。
 
-1) 命名/責務の整理（中）
+1. 命名/責務の整理（中）
 
 - `RecordingSession.file_writer: Optional[CSVWriter]` と `AsyncFileWriter` が混在。どちらかに統一（推奨: `RecordFileWriter`）し、同期/非同期の戦略は内部実装で隠蔽。
 
-1) メタデータの正確化（中）
+1. メタデータの正確化（中）
 
 - サンプルレートは瞬間値ではなく、セッション期間での平均/標準偏差を算出（`total_samples / duration`）。
 - タイムゾーンは `datetime.now(timezone.utc).astimezone()` でISO 8601に統一（現仕様OKだが実装で徹底）。
 
-1) CSV フォーマット互換性の明記（中）
+1. CSV フォーマット互換性の明記（中）
 
 - 既存の `print_stream` と完全一致する列順・小数点桁・改行コード（LF）を明確化。ヘッダコメント行の有無をオプション化（他ツール連携を考慮）。
 
-1) テスト容易性（中）
+1. テスト容易性（中）
 
 - `MockDataSource` を使った E2E テストケース（1分録画→CSV行数・メタ一致）を Phase 1 で用意。
 
@@ -88,11 +88,11 @@
   - DataBuffer Indexed Access（上記 API）
 - データ経路
 
- 1) 採取スレッド: `DataBuffer.append(row)`（最優先）
+1.  採取スレッド: `DataBuffer.append(row)`（最優先）
 
- 2) Recorder: タイマで 10–20ms ごとに `get_since_index(last_index)` で新着を取得
+2.  Recorder: タイマで 10–20ms ごとに `get_since_index(last_index)` で新着を取得
 
- 3) Writer: バッチ（例: 25件≒1秒 or N行）で書込み＋条件付き flush（N行またはT秒）
+3.  Writer: バッチ（例: 25件≒1秒 or N行）で書込み＋条件付き flush（N行またはT秒）
 
 - 期待効果
   - イベントループの多重管理を回避、停止順序が単純

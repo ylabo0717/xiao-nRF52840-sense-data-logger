@@ -12,6 +12,7 @@ pio device monitor -b 115200  # Monitor serial output
 ## Receiver (Python) Commands
 
 ### Package Management (CRITICAL: ONLY use uv, NEVER pip)
+
 ```bash
 cd receiver/
 uv sync                   # Install dependencies
@@ -21,11 +22,13 @@ uv add --dev package --upgrade-package package  # Upgrade packages
 ```
 
 ### Application
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
 ```
 
 ### Development Tools
+
 ```bash
 # Code Quality (MUST run before commits)
 uv run --frozen ruff format .     # Format code

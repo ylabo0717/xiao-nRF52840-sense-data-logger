@@ -35,7 +35,8 @@
       "mcp__serena__activate_project",
       "Bash(find:*)",
       "mcp__playwright__browser_navigate",
-      "mcp__playwright__browser_take_screenshot"
+      "mcp__playwright__browser_take_screenshot",
+      "Bash(npx prettier:*)"
     ],
     "deny": [
       "Bash(sudo *)",

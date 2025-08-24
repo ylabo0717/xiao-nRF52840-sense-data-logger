@@ -1,6 +1,7 @@
 # XIAO nRF52840 Sense Data Logger - Receiver
 
 <!-- Language Switcher -->
+
 **Languages**: [English](./README.md) | [日本語](./README.ja.md)
 
 ---
@@ -31,16 +32,19 @@ Python BLE receiver tool that collects sensor data transmitted by XIAO nRF52840 
 uv is a fast Python package and project management tool. Choose your platform:
 
 **Windows (PowerShell)**:
+
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 **macOS/Linux**:
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 **Verify Installation**:
+
 ```bash
 uv --version
 ```
@@ -58,6 +62,7 @@ uv sync
 ```
 
 This creates an isolated Python environment with all required dependencies including:
+
 - `bleak`: Cross-platform BLE library
 - `dash`: Web application framework for oscilloscope interface
 - `plotly`: Interactive plotting library for real-time visualization
@@ -70,31 +75,37 @@ This creates an isolated Python environment with all required dependencies inclu
 Run from project virtual environment:
 
 Default usage - start web oscilloscope:
+
 ```bash
 uv run xiao-nrf52840-sense-receiver
 ```
 
 CSV output mode - receive data with clean output:
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 ```
 
 Oscilloscope with custom port:
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --port 9000
 ```
 
 CSV mode with timeout protection - exit if no data for 5 seconds:
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --csv --idle-timeout 5
 ```
 
 Save CSV data to file:
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --csv --no-header > sensor_data.csv
 ```
 
 Specify device address directly (skip scanning):
+
 ```bash
 uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 ```
@@ -104,21 +115,25 @@ uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 Install as system-wide tool (one-time setup):
 
 Install tool globally from current directory:
+
 ```bash
 uv tool install .
 ```
 
 Run oscilloscope from anywhere after installation:
+
 ```bash
 uvx xiao-nrf52840-sense-receiver
 ```
 
 CSV mode with clean output:
+
 ```bash
 uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 ```
 
 CSV mode with timeout:
+
 ```bash
 uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
@@ -130,29 +145,31 @@ After starting the oscilloscope, open **[http://localhost:8050](http://localhost
 ![Oscilloscope Interface](./images/oscilloscope-screenshot.png)
 
 **Key Features:**
+
 - **Real-time Plotting**: Live sensor data visualization with auto-updating graphs
-- **Interactive Controls**: Zoom, pan, and autoscale functionality for detailed analysis  
+- **Interactive Controls**: Zoom, pan, and autoscale functionality for detailed analysis
 - **Multi-sensor Display**: Simultaneous view of accelerometer, gyroscope, temperature, and audio data
 - **Recording Tools**: Start/stop data recording with session management
 - **Connection Monitoring**: Real-time BLE connection status and data rate information
 
 ## ⚙️ Command Line Options
 
-| Option | Description | Default | Example |
-|--------|-------------|---------|----------|
-| `--csv` | Enable CSV output mode | Oscilloscope mode | `--csv` |
-| `--address <MAC>` | Direct BLE address (skip scanning) | Auto-discover | `--address "12:34:56:78:9A:BC"` |
-| `--device-name <NAME>` | Target device name for scanning | `"XIAO Sense IMU"` | `--device-name "My Sensor"` |
-| `--scan-timeout <sec>` | BLE scan timeout in seconds | 10.0 | `--scan-timeout 15` |
-| `--port <number>` | Web server port for oscilloscope | 8050 | `--port 9000` |
-| `--mock` | Use mock data (no BLE device needed) | Real BLE data | `--mock` |
-| `--no-header` | Suppress CSV header (CSV mode only) | Include header | `--no-header` |
-| `--drop-missing-audio` | Filter audioRMS=-1.0 (CSV mode only) | Include all | `--drop-missing-audio` |
-| `--idle-timeout <sec>` | Exit if no data for N seconds | Unlimited | `--idle-timeout 30` |
+| Option                 | Description                          | Default            | Example                         |
+| ---------------------- | ------------------------------------ | ------------------ | ------------------------------- |
+| `--csv`                | Enable CSV output mode               | Oscilloscope mode  | `--csv`                         |
+| `--address <MAC>`      | Direct BLE address (skip scanning)   | Auto-discover      | `--address "12:34:56:78:9A:BC"` |
+| `--device-name <NAME>` | Target device name for scanning      | `"XIAO Sense IMU"` | `--device-name "My Sensor"`     |
+| `--scan-timeout <sec>` | BLE scan timeout in seconds          | 10.0               | `--scan-timeout 15`             |
+| `--port <number>`      | Web server port for oscilloscope     | 8050               | `--port 9000`                   |
+| `--mock`               | Use mock data (no BLE device needed) | Real BLE data      | `--mock`                        |
+| `--no-header`          | Suppress CSV header (CSV mode only)  | Include header     | `--no-header`                   |
+| `--drop-missing-audio` | Filter audioRMS=-1.0 (CSV mode only) | Include all        | `--drop-missing-audio`          |
+| `--idle-timeout <sec>` | Exit if no data for N seconds        | Unlimited          | `--idle-timeout 30`             |
 
 ## 🔧 System Requirements
 
 ### Windows
+
 - **Bluetooth**: System Bluetooth enabled in Settings
 - **Location Services**: Must be enabled (required for BLE scanning)
 - **Execution**: Local PowerShell (Remote Desktop may cause issues)
@@ -161,11 +178,13 @@ After starting the oscilloscope, open **[http://localhost:8050](http://localhost
 - **Device State**: XIAO device disconnected and advertising
 
 ### macOS
+
 - **Bluetooth**: System Bluetooth enabled
 - **Permissions**: Allow Terminal/IDE Bluetooth access when prompted
 - **Device State**: XIAO device disconnected and advertising
 
 ### Linux
+
 - **Bluetooth**: BlueZ stack installed and running
 - **Permissions**: User in `bluetooth` group or run with appropriate permissions
 - **Device State**: XIAO device disconnected and advertising
@@ -175,12 +194,14 @@ After starting the oscilloscope, open **[http://localhost:8050](http://localhost
 ### Common Connection Issues
 
 **Error: `Failed to start scanner. Is Bluetooth turned on?`**
+
 - Verify system Bluetooth is enabled
 - **Windows**: Enable Location Services (required for BLE scanning)
 - Check Bluetooth adapter status in Device Manager
 - Try direct connection with `--address` if MAC address is known
 
 **Error: `Target device not found`**
+
 - Verify device is advertising (check XIAO board status)
 - Ensure device name matches (use `--device-name` if customized)
 - Increase scan timeout: `--scan-timeout 20`
@@ -188,6 +209,7 @@ After starting the oscilloscope, open **[http://localhost:8050](http://localhost
 - Restart XIAO device advertising
 
 **Connection drops frequently**
+
 - Check BLE interference from other devices
 - Verify power supply stability on XIAO device
 - Use `--idle-timeout` to handle expected disconnections
@@ -196,11 +218,13 @@ After starting the oscilloscope, open **[http://localhost:8050](http://localhost
 ### Performance Issues
 
 **Slow data reception**
+
 - BLE connection parameters may need optimization
 - Check for system Bluetooth stack performance
 - Verify XIAO device battery level
 
 **Missing audio data (audioRMS = -1.0)**
+
 - Normal behavior when insufficient audio samples
 - Use `--drop-missing-audio` to filter these rows
 - Audio processing requires 160 samples minimum
@@ -213,22 +237,24 @@ The receiver processes CSV data with the following structure:
 millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
 ```
 
-| Field | Description | Unit | Range |
-|-------|-------------|------|-------|
-| `millis` | Timestamp since device boot | ms | 0 to ~49.7 days |
-| `ax,ay,az` | Accelerometer X,Y,Z | g | ±16g |
-| `gx,gy,gz` | Gyroscope X,Y,Z | dps | ±2000 dps |
-| `tempC` | Temperature | °C | Device dependent |
-| `audioRMS` | Audio RMS level | - | ≥0.0 or -1.0 (missing) |
+| Field      | Description                 | Unit | Range                  |
+| ---------- | --------------------------- | ---- | ---------------------- |
+| `millis`   | Timestamp since device boot | ms   | 0 to ~49.7 days        |
+| `ax,ay,az` | Accelerometer X,Y,Z         | g    | ±16g                   |
+| `gx,gy,gz` | Gyroscope X,Y,Z             | dps  | ±2000 dps              |
+| `tempC`    | Temperature                 | °C   | Device dependent       |
+| `audioRMS` | Audio RMS level             | -    | ≥0.0 or -1.0 (missing) |
 
 ## 🔌 BLE Protocol Details
 
 **Nordic UART Service (NUS) UUIDs**:
+
 - **Service**: `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
 - **TX Characteristic** (device→receiver): `6e400003-b5a3-f393-e0a9-e50e24dcca9e`
 - **RX Characteristic** (receiver→device): `6e400002-b5a3-f393-e0a9-e50e24dcca9e` (unused)
 
 **Data Transmission**:
+
 - **Format**: CSV lines terminated with `\n`
 - **Fragmentation**: BLE notifications may split lines; receiver reassembles
 - **Rate**: ~25Hz from XIAO device via BLE
@@ -238,21 +264,25 @@ millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
 ### Code Quality Tools
 
 Format code:
+
 ```bash
 uv run --frozen ruff format .
 ```
 
 Lint code:
+
 ```bash
 uv run --frozen ruff check .
 ```
 
 Type checking:
+
 ```bash
 uv run --frozen pyright
 ```
 
 Run tests:
+
 ```bash
 uv run --frozen pytest
 ```
@@ -268,16 +298,19 @@ uv run --frozen pytest
 ### Adding Dependencies
 
 Add runtime dependency:
+
 ```bash
 uv add package-name
 ```
 
 Add development dependency:
+
 ```bash
 uv add --dev package-name
 ```
 
 Upgrade specific package:
+
 ```bash
 uv add package-name --upgrade-package package-name
 ```
@@ -292,12 +325,14 @@ uv add package-name --upgrade-package package-name
 ## 🚀 Current Features & Future Enhancements
 
 ### ✅ Current Features
+
 - **Real-time Oscilloscope**: Interactive web-based visualization with live sensor plots
 - **CSV Data Export**: Configurable stream processing and file output
 - **Cross-platform BLE**: Windows, macOS, Linux support via bleak
 - **Mock Data Mode**: Testing without physical device
 
 ### 🔮 Future Enhancements
+
 - **Enhanced Visualization**: Additional plot types and analysis tools
 - **Data Analysis Tools**: Built-in signal processing and filtering
 - **Multiple Device Support**: Concurrent data collection from multiple sensors

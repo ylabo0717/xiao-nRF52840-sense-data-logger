@@ -9,6 +9,7 @@ This is a XIAO nRF52840 Sense sensor data logger that collects IMU (LSM6DS3) acc
 ## Development Commands
 
 ### Build and Upload
+
 ```bash
 # Build the project (compile)
 pio run
@@ -27,6 +28,7 @@ pio pkg update
 ```
 
 ### Monitoring and Debugging
+
 ```bash
 # Monitor serial output (adjust baud rate as needed)
 pio device monitor -b 115200
@@ -38,12 +40,14 @@ pio device list
 ## Hardware Architecture
 
 ### Target Board
+
 - **Board**: Seeed Studio XIAO nRF52840 Sense
 - **Framework**: Arduino
 - **Platform**: Custom Seeed platform from GitHub
 - **Environment**: `seeed_xiao_nrf52840_sense`
 
 ### Key Hardware Components
+
 - **IMU**: LSM6DS3 accelerometer/gyroscope (I2C addresses 0x6A or 0x6B)
 - **Microphone**: Internal PDM microphone (16kHz, 1-channel, 16-bit)
 - **Connectivity**: BLE (Nordic UART Service compatible)
@@ -54,7 +58,7 @@ pio device list
 ### Main Components (src/main.cpp)
 
 1. **IMU Management**: Dynamic LSM6DS3 initialization with address detection and retry logic
-2. **PDM Audio Processing**: Ring buffer for continuous audio capture with RMS calculation  
+2. **PDM Audio Processing**: Ring buffer for continuous audio capture with RMS calculation
 3. **BLE Communication**: Robust BLE UART with partial write handling and timeout management
 4. **Data Format**: CSV output with timestamped sensor fusion data
 
@@ -69,7 +73,7 @@ CSV fields (no header in BLE): `millis,ax,ay,az,gx,gy,gz,tempC,audioRMS`
 ### BLE Implementation Details
 
 - **Service**: Nordic UART Service (NUS) compatible
-- **Device Name**: "XIAO Sense IMU"  
+- **Device Name**: "XIAO Sense IMU"
 - **Data Rate**: 25Hz CSV transmission with retry and timeout handling
 - **Connection**: Auto-restart advertising on disconnect
 

@@ -3,18 +3,21 @@
 ## Purpose
 
 Dual-component sensor data logging system for XIAO nRF52840 Sense microcontroller:
+
 - **Sender**: C++/Arduino firmware that collects IMU and PDM microphone data, transmits via BLE and USB Serial
 - **Receiver**: Python tool that receives BLE data and outputs CSV data to console/file
 
 ## Tech Stack
 
 ### Sender (Firmware)
+
 - Language: C++/Arduino
 - Platform: PlatformIO with custom Seeed platform
 - Hardware: XIAO nRF52840 Sense with LSM6DS3 IMU and PDM microphone
 - Communication: BLE (Nordic UART Service) + USB Serial
 
 ### Receiver (Python)
+
 - Language: Python 3.12+
 - Package Manager: uv (strict requirement, no pip allowed)
 - Dependencies: bleak (BLE), dash (3.2.0+), plotly (6.3.0+), pandas (2.3.2+)

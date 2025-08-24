@@ -1,6 +1,7 @@
 # XIAO nRF52840 Sense データロガー - ファームウェア
 
 <!-- Language Switcher -->
+
 **Languages**: [English](./README.md) | [日本語](./README.ja.md)
 
 ---
@@ -19,12 +20,14 @@ IMU（LSM6DS3）加速度・ジャイロスコープデータとPDMマイクロ�
 ## 🔧 ハードウェア構成
 
 ### ターゲットプラットフォーム
+
 - **ボード**: Seeed Studio XIAO nRF52840 Sense
 - **フレームワーク**: Arduino + PlatformIO
 - **プラットフォーム**: GitHub からのカスタムSeeedプラットフォーム
 - **環境**: `seeed_xiao_nrf52840_sense`
 
 ### ハードウェアコンポーネント
+
 - **IMU**: LSM6DS3 加速度・ジャイロスコープ (I2Cアドレス 0x6A または 0x6B)
 - **マイクロフォン**: 内蔵PDMマイクロフォン (16kHz、1チャンネル、16ビット)
 - **通信**: BLE Nordic UARTサービス互換
@@ -50,14 +53,15 @@ CSVフィールド: `millis,ax,ay,az,gx,gy,gz,tempC,audioRMS`
 ### インストール
 
 1. **PlatformIO Core をインストール**（推奨: pipx）:
+
    ```bash
    # pipx が未インストールの場合
    python -m pip install --user pipx
    python -m pipx ensurepath
-   
+
    # PlatformIO をインストール
    pipx install platformio
-   
+
    # インストール確認
    pio --version
    ```
@@ -108,22 +112,22 @@ pio device list
 
 ### メインコンポーネント (src/main.cpp)
 
-1. **IMU管理**: 
+1. **IMU管理**:
    - I2Cアドレス検出による動的LSM6DS3初期化
    - センサー初期化失敗時のリトライロジック
    - センサー障害時のI2Cデバイススキャン
 
-2. **PDMオーディオ処理**: 
+2. **PDMオーディオ処理**:
    - 連続オーディオキャプチャ用リングバッファ
    - 10msスライディングウィンドウでのRMS計算
    - リアルタイムパフォーマンス用割り込み駆動PDM
 
-3. **BLE通信**: 
+3. **BLE通信**:
    - 部分書き込み処理による堅牢なBLE UART
    - タイムアウト管理と接続回復
    - 切断時の自動アドバタイジング再開
 
-4. **データ同期**: 
+4. **データ同期**:
    - タイムスタンプ付きセンサーフュージョンデータ
    - 一貫したフィールド構造のCSV出力フォーマット
 
@@ -145,11 +149,13 @@ pio device list
 ## 🔧 設定
 
 ### ハードウェア設定
+
 - **I2C速度**: 最適なセンサーパフォーマンスのための400kHz
 - **BLE MTU**: データスループット最適化
 - **オーディオサンプリング**: 10ms RMSウィンドウでの16kHz PDM
 
 ### データレート最適化
+
 - **シリアル**: 全データでのフルセンサーレート（〜100Hz）
 - **BLE**: 同じデータ精度での帯域幅制限レート（〜25Hz）
 - **オーディオ**: データレートでのRMS報告を伴う連続キャプチャ

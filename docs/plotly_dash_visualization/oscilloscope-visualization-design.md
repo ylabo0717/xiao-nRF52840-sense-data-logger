@@ -224,10 +224,10 @@ class DataSource(ABC):
 
     @abstractmethod
     def is_connected(self) -> bool: ...
-    
+
     @abstractmethod
     def get_nominal_sample_rate(self) -> float: ...
-    
+
     def get_measured_sample_rate(self) -> Optional[float]: ...
 ```
 
@@ -250,7 +250,7 @@ class DataBuffer:
         nominal_rate = data_source.get_nominal_sample_rate()
         self.max_size = int(nominal_rate * time_window_seconds * 1.2)  # 20% margin
         self._buffer: deque[ImuRow] = deque(maxlen=self.max_size)
-        
+
     def get_effective_sample_rate(self) -> float:
         """Calculate actual sample rate from recent timestamps"""
         if len(self._buffer) < 2:
@@ -269,20 +269,20 @@ class AsyncDataBridge:
         self._task: Optional[asyncio.Task] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event = threading.Event()
-        
+
     def start_background_thread(self):
         """Start background thread with asyncio loop for data collection"""
         self._stop_event.clear()
         thread = threading.Thread(target=self._run_async_loop, daemon=True)
         thread.start()
-        
+
     def stop(self):
         """Stop the background data collection"""
         self._stop_event.set()
         if self._task and self._loop:
             # Schedule task cancellation in the background loop
             self._loop.call_soon_threadsafe(self._task.cancel)
-    
+
     def _run_async_loop(self):
         """Create new event loop and run data collection task"""
         self._loop = asyncio.new_event_loop()
@@ -294,7 +294,7 @@ class AsyncDataBridge:
             pass  # Clean shutdown
         finally:
             self._loop.close()
-            
+
     async def _data_collection_loop(self):
         """Main async loop for data collection with error recovery"""
         while not self._stop_event.is_set():

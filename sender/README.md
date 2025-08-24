@@ -1,6 +1,7 @@
 # XIAO nRF52840 Sense Data Logger - Firmware
 
 <!-- Language Switcher -->
+
 **Languages**: [English](./README.md) | [日本語](./README.ja.md)
 
 ---
@@ -19,12 +20,14 @@ Firmware for XIAO nRF52840 Sense that collects IMU (LSM6DS3) accelerometer/gyros
 ## 🔧 Hardware Architecture
 
 ### Target Platform
+
 - **Board**: Seeed Studio XIAO nRF52840 Sense
 - **Framework**: Arduino + PlatformIO
 - **Platform**: Custom Seeed platform from GitHub
 - **Environment**: `seeed_xiao_nrf52840_sense`
 
 ### Hardware Components
+
 - **IMU**: LSM6DS3 accelerometer/gyroscope (I2C addresses 0x6A or 0x6B)
 - **Microphone**: Internal PDM microphone (16kHz, 1-channel, 16-bit)
 - **Connectivity**: BLE Nordic UART Service compatible
@@ -50,14 +53,15 @@ CSV fields: `millis,ax,ay,az,gx,gy,gz,tempC,audioRMS`
 ### Installation
 
 1. **Install PlatformIO Core** (recommended: pipx):
+
    ```bash
    # Install pipx if not available
    python -m pip install --user pipx
    python -m pipx ensurepath
-   
+
    # Install PlatformIO
    pipx install platformio
-   
+
    # Verify installation
    pio --version
    ```
@@ -108,22 +112,22 @@ pio device list
 
 ### Main Components (src/main.cpp)
 
-1. **IMU Management**: 
+1. **IMU Management**:
    - Dynamic LSM6DS3 initialization with I2C address detection
    - Retry logic for failed sensor initialization
    - I2C device scanning during sensor failure
 
-2. **PDM Audio Processing**: 
+2. **PDM Audio Processing**:
    - Ring buffer for continuous audio capture
    - RMS calculation with 10ms sliding window
    - Interrupt-driven PDM with real-time performance
 
-3. **BLE Communication**: 
+3. **BLE Communication**:
    - Robust BLE UART with partial write handling
    - Timeout management and connection recovery
    - Auto-restart advertising on disconnect
 
-4. **Data Synchronization**: 
+4. **Data Synchronization**:
    - Timestamped sensor fusion data
    - CSV output formatting with consistent field structure
 
@@ -145,11 +149,13 @@ From `platformio.ini`:
 ## 🔧 Configuration
 
 ### Hardware Configuration
+
 - **I2C Speed**: 400kHz for optimal sensor performance
 - **BLE MTU**: Optimized for data throughput
 - **Audio Sampling**: 16kHz PDM with 10ms RMS windows
 
 ### Data Rate Optimization
+
 - **Serial**: Full sensor rate (~100Hz) with all data
 - **BLE**: Bandwidth-limited rate (~25Hz) with same data precision
 - **Audio**: Continuous capture with RMS reporting at data rate
@@ -184,4 +190,3 @@ From `platformio.ini`:
 - **Audio Processing**: Interrupt-driven for real-time performance
 - **Memory Usage**: Ring buffer design minimizes RAM requirements
 - **Power Efficiency**: Optimized BLE parameters for battery operation
-
