@@ -114,11 +114,31 @@ class OscilloscopeApp:
             data = self.buffer.get_recent(500)  # Show last 500 points
             stats = self.buffer.stats
 
+            # Debug logging - much more frequent for troubleshooting
+            if n_intervals % 5 == 0:  # Log every 5 updates (~0.3 seconds at 15fps)
+                print(
+                    f"🔍 UI Debug: n_intervals={n_intervals}, Buffer size={self.buffer.size}, Recent data={len(data)}, Sample rate={stats.sample_rate:.1f}Hz"
+                )
+                if len(data) > 0:
+                    print(
+                        f"🔍 UI Sample data: ax={data[-1].ax:.2f}, temp={data[-1].tempC:.1f}°C"
+                    )
+                else:
+                    print("🔍 UI: NO DATA AVAILABLE")
+
             # Create multi-sensor plot layout
             multi_fig = create_multi_plot_layout(data)
 
             # Enhanced connection status
             is_connected = self.buffer.size > 0
+
+            # Debug: Log connection status periodically
+            if n_intervals % 60 == 0:  # Every ~4 seconds
+                print(
+                    f"🔍 UI Debug: is_connected={is_connected}, buffer_size={self.buffer.size}, "
+                    f"stats.fill_level={stats.fill_level}, stats.sample_rate={stats.sample_rate:.1f}"
+                )
+
             if is_connected:
                 if stats.sample_rate > 20:
                     connection_status = "🟢 Connected (Excellent)"
@@ -195,8 +215,9 @@ class OscilloscopeApp:
 
         async def collect_data_with_retry() -> None:
             retry_count = 0
-            max_retries = 3
-            retry_delay = 5.0  # seconds
+            max_retries = 5  # Increased retries
+            retry_delay = 3.0  # Reduced initial delay
+            backoff_multiplier = 1.5  # Exponential backoff
 
             while not self._stop_event.is_set() and retry_count < max_retries:
                 try:
@@ -217,15 +238,13 @@ class OscilloscopeApp:
                         self.buffer.append(row)
                         data_count += 1
 
-                        # Log progress for BLE connections
-                        if isinstance(
-                            self.data_source, type(self.data_source)
-                        ) and hasattr(self.data_source, "_connected"):
-                            if data_count % 100 == 1:  # Log every 100 samples
-                                print(
-                                    f"📊 Collected {data_count} samples, "
-                                    f"buffer: {self.buffer.size}/{self.buffer.max_size}"
-                                )
+                        # Log progress more frequently for debugging
+                        if data_count % 5 == 1:  # Log every 5 samples (~0.2 second)
+                            print(
+                                f"📊 Background: Collected {data_count} samples, "
+                                f"buffer: {self.buffer.size}/{self.buffer.max_size} "
+                                f"Last data: ax={row.ax:.2f}, ay={row.ay:.2f}, temp={row.tempC:.1f}°C"
+                            )
 
                     # If we exit the loop normally, we're done
                     if not self._stop_event.is_set():
@@ -241,15 +260,30 @@ class OscilloscopeApp:
                     print(
                         f"❌ Data collection error (attempt {retry_count}/{max_retries}): {e}"
                     )
+                    print(f"❌ Error type: {type(e).__name__}")
+                    import traceback
+
+                    print("❌ Full traceback:")
+                    traceback.print_exc()
 
                     if retry_count < max_retries:
-                        print(f"⏳ Retrying in {retry_delay} seconds...")
+                        current_delay = retry_delay * (
+                            backoff_multiplier ** (retry_count - 1)
+                        )
+                        print(
+                            f"⏳ Retrying in {current_delay:.1f} seconds... (retry {retry_count}/{max_retries})"
+                        )
                         try:
-                            await asyncio.sleep(retry_delay)
+                            await asyncio.sleep(current_delay)
                         except asyncio.CancelledError:
                             break
                     else:
                         print(f"💥 Max retries ({max_retries}) exceeded. Giving up.")
+                        print("💡 Troubleshooting tips:")
+                        print("   - Check if XIAO device is powered on")
+                        print("   - Verify device is advertising as 'XIAO Sense IMU'")
+                        print("   - Move device closer to reduce interference")
+                        print("   - Restart the device and try again")
 
                 finally:
                     try:
@@ -281,9 +315,25 @@ class OscilloscopeApp:
 
     def stop_data_collection(self) -> None:
         """Stop background data collection."""
+        print("🛑 Stopping data collection...")
         self._stop_event.set()
+
         if self._data_thread and self._data_thread.is_alive():
-            self._data_thread.join(timeout=2.0)
+            print("⏳ Waiting for data collection thread to stop...")
+            self._data_thread.join(timeout=5.0)  # Increased timeout
+
+            if self._data_thread.is_alive():
+                print("⚠️ Data collection thread did not stop gracefully")
+            else:
+                print("✅ Data collection thread stopped")
+
+        # Close the event loop if it exists
+        if self._loop and not self._loop.is_closed():
+            try:
+                self._loop.close()
+                print("✅ Event loop closed")
+            except Exception as e:
+                print(f"⚠️ Error closing event loop: {e}")
 
     def run(
         self, host: str = "127.0.0.1", port: int = 8050, debug: bool = False

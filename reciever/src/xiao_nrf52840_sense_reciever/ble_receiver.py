@@ -172,10 +172,14 @@ class DataSource(ABC):
 
 
 class BleDataSource(DataSource):
-    """BLE data source adapter for existing BLE receiver."""
+    """BLE data source adapter for existing BLE receiver with enhanced stability."""
 
-    def __init__(self) -> None:
+    def __init__(self, scan_timeout: float = 15.0, idle_timeout: float = 30.0) -> None:
         self._connected = False
+        self._scan_timeout = scan_timeout
+        self._idle_timeout = idle_timeout
+        self._connection_attempts = 0
+        self._last_data_time = 0.0
 
     async def is_connected(self) -> bool:
         return self._connected
@@ -187,29 +191,83 @@ class BleDataSource(DataSource):
         self._connected = False
 
     async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
-        """Get BLE data stream using the existing stream_rows function."""
+        """Get BLE data stream with enhanced stability and monitoring."""
         import logging
+        import time
 
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
 
         self._connected = True
+        self._connection_attempts += 1
+
         try:
-            logger.info("🔍 Scanning for XIAO Sense IMU device...")
-            async for row in stream_rows():
+            logger.info(
+                f"🔍 Scanning for XIAO Sense IMU device (attempt {self._connection_attempts})..."
+            )
+            logger.info(
+                f"⚙️ Scan timeout: {self._scan_timeout}s, Idle timeout: {self._idle_timeout}s"
+            )
+
+            data_count = 0
+            last_log_time = time.time()
+            connection_start = time.time()
+
+            async for row in stream_rows(
+                scan_timeout=self._scan_timeout, idle_timeout=self._idle_timeout
+            ):
                 if not self._connected:
+                    logger.info("🛑 Connection manually stopped")
                     break
+
+                current_time = time.time()
+                self._last_data_time = current_time
+                data_count += 1
+
+                # Log connection health every 10 seconds
+                if current_time - last_log_time > 10.0:
+                    connection_duration = current_time - connection_start
+                    avg_rate = (
+                        data_count / connection_duration
+                        if connection_duration > 0
+                        else 0
+                    )
+                    logger.info(
+                        f"📊 Connection healthy: {data_count} samples, {avg_rate:.1f}Hz avg"
+                    )
+                    last_log_time = current_time
+
                 yield row
+
         except KeyboardInterrupt:
             logger.info("🛑 BLE stream interrupted by user")
             self._connected = False
             raise
         except Exception as e:
-            logger.error(f"❌ BLE stream error: {type(e).__name__}: {e}")
+            error_msg = f"{type(e).__name__}: {e}"
+            logger.error(f"❌ BLE stream error: {error_msg}")
+
+            # Classify error types for better debugging
+            if "was not found" in str(e) or "No such device" in str(e):
+                logger.error(
+                    "🔍 Device not found - check if XIAO is powered on and advertising"
+                )
+            elif "Connection failed" in str(e) or "timeout" in str(e).lower():
+                logger.error("⏱️ Connection timeout - device may be out of range")
+            elif "was disconnected" in str(e) or "disconnected" in str(e).lower():
+                logger.error(
+                    "🔌 Device disconnected - connection lost during operation"
+                )
+
             self._connected = False
             raise
         finally:
-            logger.info("🔌 BLE data stream disconnected")
+            connection_duration = (
+                time.time() - connection_start if "connection_start" in locals() else 0
+            )
+            logger.info(
+                f"🔌 BLE data stream disconnected after {connection_duration:.1f}s"
+            )
             self._connected = False
 
 
