@@ -188,14 +188,28 @@ class BleDataSource(DataSource):
 
     async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
         """Get BLE data stream using the existing stream_rows function."""
+        import logging
+
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+
         self._connected = True
         try:
+            logger.info("🔍 Scanning for XIAO Sense IMU device...")
             async for row in stream_rows():
+                if not self._connected:
+                    break
                 yield row
-        except Exception:
+        except KeyboardInterrupt:
+            logger.info("🛑 BLE stream interrupted by user")
+            self._connected = False
+            raise
+        except Exception as e:
+            logger.error(f"❌ BLE stream error: {type(e).__name__}: {e}")
             self._connected = False
             raise
         finally:
+            logger.info("🔌 BLE data stream disconnected")
             self._connected = False
 
 

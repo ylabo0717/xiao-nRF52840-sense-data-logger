@@ -46,20 +46,37 @@ class OscilloscopeApp:
                             [
                                 html.H3("Connection Status"),
                                 html.Div(
-                                    id="connection-status", children="Disconnected"
+                                    id="connection-status", children="Initializing..."
                                 ),
+                                html.Div(id="connection-details", children=""),
                             ],
-                            style={"width": "30%", "display": "inline-block"},
+                            style={
+                                "width": "30%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
                         ),
                         html.Div(
                             [
                                 html.H3("Buffer Statistics"),
                                 html.Div(id="buffer-stats", children="No data"),
                             ],
-                            style={"width": "70%", "display": "inline-block"},
+                            style={
+                                "width": "65%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
                         ),
                     ],
-                    style={"margin": "20px"},
+                    style={"margin": "20px", "display": "flex", "gap": "10px"},
                 ),
                 # Multi-sensor plots
                 html.Div(
@@ -87,6 +104,7 @@ class OscilloscopeApp:
             [
                 Output("multi-plot", "figure"),
                 Output("connection-status", "children"),
+                Output("connection-details", "children"),
                 Output("buffer-stats", "children"),
             ],
             [Input("interval-component", "n_intervals")],
@@ -99,48 +117,156 @@ class OscilloscopeApp:
             # Create multi-sensor plot layout
             multi_fig = create_multi_plot_layout(data)
 
-            # Connection status
-            connection_status = "Connected" if self.buffer.size > 0 else "Disconnected"
-            status_style = {"color": "green" if self.buffer.size > 0 else "red"}
+            # Enhanced connection status
+            is_connected = self.buffer.size > 0
+            if is_connected:
+                if stats.sample_rate > 20:
+                    connection_status = "🟢 Connected (Excellent)"
+                    status_color = "green"
+                elif stats.sample_rate > 15:
+                    connection_status = "🟡 Connected (Good)"
+                    status_color = "orange"
+                else:
+                    connection_status = "🔴 Connected (Poor)"
+                    status_color = "red"
+            else:
+                connection_status = "🔴 Disconnected"
+                status_color = "red"
+
+            status_style = {
+                "color": status_color,
+                "fontWeight": "bold",
+                "fontSize": "16px",
+            }
+
+            # Detailed connection information
+            data_source_type = type(self.data_source).__name__
+            if data_source_type == "BleDataSource":
+                device_info = "🔵 BLE Device: XIAO Sense IMU"
+            elif data_source_type == "MockDataSource":
+                device_info = "🔵 Mock Device: Test Data"
+            else:
+                device_info = f"🔵 Device: {data_source_type}"
+
+            connection_details = html.Div(
+                [
+                    html.P(device_info, style={"margin": "5px 0", "fontSize": "14px"}),
+                    html.P(
+                        f"⏱️ Update Rate: {stats.sample_rate:.1f} Hz",
+                        style={"margin": "5px 0", "fontSize": "14px"},
+                    ),
+                    html.P(
+                        f"📈 Buffer Fill: {stats.fill_level} samples",
+                        style={"margin": "5px 0", "fontSize": "14px"},
+                    ),
+                ]
+            )
 
             # Buffer statistics
             buffer_info = html.Div(
                 [
-                    html.P(f"Buffer Size: {stats.fill_level}/{self.buffer.max_size}"),
-                    html.P(f"Sample Rate: {stats.sample_rate:.1f} Hz"),
-                    html.P(f"Data Points: {len(data)}"),
+                    html.P(
+                        f"Buffer Fill: {stats.fill_level}/{self.buffer.max_size} "
+                        f"({stats.fill_level / self.buffer.max_size * 100:.1f}%)",
+                        style={"margin": "5px 0"},
+                    ),
+                    html.P(
+                        f"Displaying: {len(data)} data points "
+                        f"({len(data) / 25:.1f}s @ 25Hz)",
+                        style={"margin": "5px 0"},
+                    ),
+                    html.P(
+                        f"Buffer Duration: {self.buffer.max_size / 25:.1f}s "
+                        f"({self.buffer.max_size / 25 / 60:.1f}min)",
+                        style={"margin": "5px 0"},
+                    ),
                 ]
             )
 
             return (
                 multi_fig,
                 html.Span(connection_status, style=status_style),
+                connection_details,
                 buffer_info,
             )
 
     def _data_collection_worker(self) -> None:
-        """Background worker to collect data from the data source."""
+        """Background worker to collect data from the data source with retry logic."""
 
-        async def collect_data() -> None:
-            try:
-                await self.data_source.start()
-                async for row in self.data_source.get_data_stream():
-                    if self._stop_event.is_set():
-                        break
-                    self.buffer.append(row)
-            except Exception as e:
-                print(f"Data collection error: {e}")
-            finally:
-                await self.data_source.stop()
+        async def collect_data_with_retry() -> None:
+            retry_count = 0
+            max_retries = 3
+            retry_delay = 5.0  # seconds
+
+            while not self._stop_event.is_set() and retry_count < max_retries:
+                try:
+                    print(
+                        f"🔄 Starting data source (attempt {retry_count + 1}/{max_retries})..."
+                    )
+                    await self.data_source.start()
+
+                    data_count = 0
+
+                    print("✅ Data source started, beginning data collection...")
+
+                    async for row in self.data_source.get_data_stream():
+                        if self._stop_event.is_set():
+                            print("🛑 Stop event received, ending data collection")
+                            break
+
+                        self.buffer.append(row)
+                        data_count += 1
+
+                        # Log progress for BLE connections
+                        if isinstance(
+                            self.data_source, type(self.data_source)
+                        ) and hasattr(self.data_source, "_connected"):
+                            if data_count % 100 == 1:  # Log every 100 samples
+                                print(
+                                    f"📊 Collected {data_count} samples, "
+                                    f"buffer: {self.buffer.size}/{self.buffer.max_size}"
+                                )
+
+                    # If we exit the loop normally, we're done
+                    if not self._stop_event.is_set():
+                        print("⚠️ Data stream ended unexpectedly")
+                    break
+
+                except asyncio.CancelledError:
+                    print("🛑 Data collection cancelled")
+                    break
+
+                except Exception as e:
+                    retry_count += 1
+                    print(
+                        f"❌ Data collection error (attempt {retry_count}/{max_retries}): {e}"
+                    )
+
+                    if retry_count < max_retries:
+                        print(f"⏳ Retrying in {retry_delay} seconds...")
+                        try:
+                            await asyncio.sleep(retry_delay)
+                        except asyncio.CancelledError:
+                            break
+                    else:
+                        print(f"💥 Max retries ({max_retries}) exceeded. Giving up.")
+
+                finally:
+                    try:
+                        await self.data_source.stop()
+                    except Exception as e:
+                        print(f"⚠️ Error stopping data source: {e}")
+
+            print("🏁 Data collection worker finished")
 
         # Create new event loop for this thread
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
 
         try:
-            self._loop.run_until_complete(collect_data())
+            self._loop.run_until_complete(collect_data_with_retry())
         except Exception as e:
-            print(f"Worker error: {e}")
+            print(f"💥 Worker fatal error: {e}")
         finally:
             self._loop.close()
 
