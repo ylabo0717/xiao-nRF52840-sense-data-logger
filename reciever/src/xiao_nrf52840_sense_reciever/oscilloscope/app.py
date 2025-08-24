@@ -9,7 +9,7 @@ from typing import Optional
 import dash  # type: ignore
 from dash import dcc, html, Input, Output
 
-from ..ble_receiver import DataBuffer, DataSource, MockDataSource
+from ..ble_receiver import DataBuffer, DataSource
 from .plots import create_multi_plot_layout
 
 
@@ -180,31 +180,22 @@ class OscilloscopeApp:
             data = self.buffer.get_recent(500)  # Show last 500 points
             stats = self.buffer.stats
 
-            # Debug logging - much more frequent for troubleshooting
-            if n_intervals % 5 == 0:  # Log every 5 updates (~0.3 seconds at 15fps)
-                print(
-                    f"🔍 UI Debug: n_intervals={n_intervals}, Buffer size={self.buffer.size}, Recent data={len(data)}, Sample rate={stats.sample_rate:.1f}Hz"
-                )
-                if len(data) > 0:
-                    print(
-                        f"🔍 UI Sample data: ax={data[-1].ax:.2f}, temp={data[-1].tempC:.1f}°C"
-                    )
-                else:
-                    print("🔍 UI: NO DATA AVAILABLE")
+            # Enhanced connection status with startup detection
+            buffer_has_data = self.buffer.size > 0
+            data_source_type = type(self.data_source).__name__
 
-            # Create multi-sensor plot layout
-            multi_fig = create_multi_plot_layout(data)
+            # Check if BLE is in startup phase
+            is_ble_startup = (
+                data_source_type == "BleDataSource"
+                and not buffer_has_data
+                and hasattr(self, "_data_thread")
+                and self._data_thread is not None
+                and self._data_thread.is_alive()
+            )
 
-            # Enhanced connection status
-            is_connected = self.buffer.size > 0
+            is_connected = buffer_has_data
 
-            # Debug: Log connection status periodically
-            if n_intervals % 60 == 0:  # Every ~4 seconds
-                print(
-                    f"🔍 UI Debug: is_connected={is_connected}, buffer_size={self.buffer.size}, "
-                    f"stats.fill_level={stats.fill_level}, stats.sample_rate={stats.sample_rate:.1f}"
-                )
-
+            # Connection status logic
             if is_connected:
                 if stats.sample_rate > 20:
                     connection_status = "🟢 Connected (Excellent)"
@@ -215,9 +206,28 @@ class OscilloscopeApp:
                 else:
                     connection_status = "🔴 Connected (Poor)"
                     status_color = "red"
+            elif is_ble_startup:
+                connection_status = "🟡 Connecting to BLE device..."
+                status_color = "orange"
             else:
                 connection_status = "🔴 Disconnected"
                 status_color = "red"
+
+            # Debug logging - reduced frequency after fixing buffer issue
+            if n_intervals % 100 == 0:  # Log every ~7 seconds at 15fps
+                print(
+                    f"🔍 UI Debug: Buffer size={self.buffer.size}, Sample rate={stats.sample_rate:.1f}Hz, Status: {connection_status}"
+                )
+
+            # Create multi-sensor plot layout
+            multi_fig = create_multi_plot_layout(data)
+
+            # Debug: Log connection status periodically
+            if n_intervals % 60 == 0:  # Every ~4 seconds
+                print(
+                    f"🔍 UI Debug: is_connected={is_connected}, buffer_size={self.buffer.size}, "
+                    f"stats.fill_level={stats.fill_level}, stats.sample_rate={stats.sample_rate:.1f}"
+                )
 
             status_style = {
                 "color": status_color,
@@ -226,9 +236,11 @@ class OscilloscopeApp:
             }
 
             # Detailed connection information
-            data_source_type = type(self.data_source).__name__
             if data_source_type == "BleDataSource":
-                device_info = "🔵 BLE Device: XIAO Sense IMU"
+                if is_ble_startup:
+                    device_info = "🔵 BLE Device: XIAO Sense IMU (connecting...)"
+                else:
+                    device_info = "🔵 BLE Device: XIAO Sense IMU"
             elif data_source_type == "MockDataSource":
                 device_info = "🔵 Mock Device: Test Data"
             else:
@@ -434,12 +446,13 @@ class OscilloscopeApp:
                         self.buffer.append(row)
                         data_count += 1
 
-                        # Log progress more frequently for debugging
-                        if data_count % 5 == 1:  # Log every 5 samples (~0.2 second)
+                        # Log progress periodically
+                        if data_count % 25 == 1:  # Log every 25 samples (~1 second)
+                            buffer_stats = self.buffer.stats
                             print(
                                 f"📊 Background: Collected {data_count} samples, "
-                                f"buffer: {self.buffer.size}/{self.buffer.max_size} "
-                                f"Last data: ax={row.ax:.2f}, ay={row.ay:.2f}, temp={row.tempC:.1f}°C"
+                                f"buffer: {self.buffer.size}/{self.buffer.max_size}, "
+                                f"rate: {buffer_stats.sample_rate:.1f}Hz"
                             )
 
                     # If we exit the loop normally, we're done
@@ -542,17 +555,22 @@ class OscilloscopeApp:
             self.stop_data_collection()
 
 
-def create_app(
-    data_source: Optional[DataSource] = None, **kwargs: int
-) -> OscilloscopeApp:
-    """Factory function to create an oscilloscope app."""
-    if data_source is None:
-        data_source = MockDataSource()
+def create_app(data_source: DataSource, **kwargs: int) -> OscilloscopeApp:
+    """Factory function to create an oscilloscope app.
 
+    Args:
+        data_source: Required data source (BleDataSource or MockDataSource)
+        **kwargs: Additional arguments for OscilloscopeApp
+
+    Returns:
+        OscilloscopeApp instance
+    """
     return OscilloscopeApp(data_source=data_source, **kwargs)
 
 
 if __name__ == "__main__":
     # Run with mock data for testing
-    app = create_app()
+    from ..ble_receiver import MockDataSource
+
+    app = create_app(MockDataSource())
     app.run(debug=True)

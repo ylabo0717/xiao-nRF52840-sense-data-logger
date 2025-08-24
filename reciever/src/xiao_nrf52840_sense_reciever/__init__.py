@@ -60,6 +60,22 @@ def main() -> None:
         default=None,
         help="ログをファイルにも出力（既定: 標準エラーのみ）",
     )
+    parser.add_argument(
+        "--oscilloscope",
+        action="store_true",
+        help="オシロスコープWeb UI を起動",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8050,
+        help="オシロスコープサーバーポート（既定: 8050）",
+    )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="テスト用のMockデータを使用（BLEデバイス不要）",
+    )
 
     args = parser.parse_args()
 
@@ -80,12 +96,75 @@ def main() -> None:
         force=True,  # 他のbasicConfigに影響されないよう強制
     )
 
-    code = run(
-        address=args.address,
-        show_header=not args.no_header,
-        drop_missing_audio=args.drop_missing_audio,
-        device_name=args.device_name,
-        scan_timeout=args.scan_timeout,
-        idle_timeout=args.idle_timeout,
-    )
-    raise SystemExit(code)
+    if args.oscilloscope:
+        # オシロスコープモードで起動
+        from .oscilloscope import create_app
+        from .ble_receiver import BleDataSource, MockDataSource
+
+        print("🔧 XIAO nRF52840 Sense - Oscilloscope")
+        print("=" * 50)
+        print("🌐 Starting web interface...")
+        print("📊 BLE connection will take 10-15 seconds to establish")
+        print("⏱️ Please be patient while connecting to device...")
+        print(f"🔍 Open http://localhost:{args.port} in your browser")
+        print("=" * 50)
+
+        # データソースの選択
+        from .ble_receiver import DataSource
+
+        data_source: DataSource
+        if args.mock:
+            print("🔧 Using mock data for testing (no BLE device required)")
+            data_source = MockDataSource()
+        else:
+            # BLE接続を試行、失敗時は明確にエラー終了
+            if args.address:
+                print(f"🔍 Connecting to specific BLE address: {args.address}")
+            else:
+                print("🔍 Attempting to connect to BLE device...")
+                print("💡 Make sure XIAO Sense IMU is powered on and advertising")
+
+            try:
+                data_source = BleDataSource(
+                    scan_timeout=args.scan_timeout, idle_timeout=args.idle_timeout
+                )
+            except Exception as e:
+                print(f"❌ Failed to connect to BLE device: {e}")
+                print("💡 Troubleshooting tips:")
+                print("   - Check if XIAO device is powered on")
+                print("   - Verify device is advertising as 'XIAO Sense IMU'")
+                print("   - Move device closer to reduce interference")
+                print("   - Check Bluetooth is enabled on this computer")
+                print("   - Try restarting the device and try again")
+                print("   - Use --mock option for testing without device")
+                raise SystemExit(1)
+
+        # アプリを作成して起動
+        try:
+            app = create_app(data_source=data_source)
+            app.start_data_collection()
+
+            try:
+                app.app.run(debug=False, host="0.0.0.0", port=args.port)
+            except KeyboardInterrupt:
+                print("\n🛑 Shutting down oscilloscope...")
+            finally:
+                print("🛑 Stopping data collection...")
+                app.stop_data_collection()
+                print("🏁 Oscilloscope stopped")
+
+        except Exception as e:
+            print(f"❌ Failed to start oscilloscope: {e}")
+            raise SystemExit(1)
+
+    else:
+        # 通常のCSV出力モード
+        code = run(
+            address=args.address,
+            show_header=not args.no_header,
+            drop_missing_audio=args.drop_missing_audio,
+            device_name=args.device_name,
+            scan_timeout=args.scan_timeout,
+            idle_timeout=args.idle_timeout,
+        )
+        raise SystemExit(code)
