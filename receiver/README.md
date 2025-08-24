@@ -1,105 +1,244 @@
-# XIAO nRF52840 Sense Receiver (BLE/CSV)
+# XIAO nRF52840 Sense Data Logger - Receiver
 
-このリポジトリは、XIAO nRF52840 Sense が BLE (Nordic UART Service 互換) で送出する CSV テレメトリを PC 側で受信する Python ツールを提供します。`bleak` を用いて Windows の BLE スタック上で動作します。
-
-## Getting Started
-
-以下は Windows + PowerShell 想定です。他 OS の場合は適宜読み替えてください。
-
-### 1) uv をインストール
-
-uv は Python パッケージ/環境/ツール管理の高速CLIです。
-
-```pwsh
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-インストール確認:
-
-```pwsh
-uv --version
-```
-
-### 2) 依存の同期（開発時 or ローカル実行）
-
-リポジトリ直下で仮想環境と依存関係を同期します。
-
-```pwsh
-uv sync
-```
-
-### 3) コマンドの実行方法（2通り）
-
-1. リポジトリ内の仮想環境から実行
-
-```pwsh
-# ヘッダ無し・audioRMS の欠損行を除外して受信
-uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
-
-# 受信が5秒以上途絶えたら終了（ハング防止）
-uv run xiao-nrf52840-sense-receiver --idle-timeout 5
-
-# CSV をファイル保存
-uv run xiao-nrf52840-sense-receiver > out.csv
-```
-
-1. ツール（global-like）として実行
-
-一度だけローカルのパッケージをツール登録します。
-
-```pwsh
-uv tool install .
-```
-
-以後、どこからでも以下のように実行できます。
-
-```pwsh
-uvx xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
-
-# 受信が10秒以上途絶えたら終了
-uvx xiao-nrf52840-sense-receiver --idle-timeout 10
-```
-
-### オプション
-
-- `--address <MAC>`: BLE アドレス直指定（スキャンを回避）
-- `--device-name <NAME>`: スキャンで優先的に探すデバイス名（既定: `XIAO Sense IMU`）
-- `--scan-timeout <sec>`: スキャンのタイムアウト秒数（既定: 10.0）
-- `--no-header`: 出力の先頭ヘッダ行を抑止
-- `--drop-missing-audio`: `audioRMS=-1.0` の行を除外
-- `--idle-timeout <sec>`: 受信が指定秒数途絶えたらエラー終了（未指定で無制限）
-
-## BLE 受信の前提条件（Windows）
-
-以下が満たされていないとスキャン/接続に失敗します。
-
-- Windows の「Bluetooth」がオン
-- Windows の「位置情報サービス」がオン（BLE スキャンに必要）
-- ローカルログインの PowerShell で実行（リモートデスクトップ経由だと失敗する場合あり）
-- WSL/仮想環境内ではなく Windows ネイティブで実行
-- Bluetooth アダプタが有効で、ドライバが正しく認識
-- XIAO デバイスが切断状態でアドバタイズ中
-
-## トラブルシュート
-
-- エラー: `Failed to start scanner. Is Bluetooth turned on?`
-  - 上の前提条件を確認。特に「位置情報サービス」をオンにする
-  - デバイスマネージャーで Bluetooth アダプタの状態/ドライバを確認
-  - 既知のアドレスが分かるなら `--address` で直接接続を試す
-
-- `対象デバイスが見つかりませんでした` と出る
-  - デバイス名を変更している場合は `--device-name` で指定
-  - 距離を近づけ、アドバタイズが再開されているか確認
-  - `--scan-timeout` を延ばす
-
-## 参考（実装のポイント）
-
-- NUS (Nordic UART Service) UUID:
-  - Service: `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
-  - TX Notify: `6e400003-b5a3-f393-e0a9-e50e24dcca9e`
-  - RX Write: `6e400002-b5a3-f393-e0a9-e50e24dcca9e`（未使用）
-- CSV: `millis, ax, ay, az, gx, gy, gz, tempC, audioRMS` の9フィールド
-- 通知断片はアプリ側で改行区切りに再構成
+<!-- Language Switcher -->
+**Languages**: [English](./README.md) | [日本語](./README.ja.md)
 
 ---
 
+## 🚀 Overview
+
+Python BLE receiver tool that collects CSV telemetry data transmitted by XIAO nRF52840 Sense via BLE (Nordic UART Service compatible). Uses `bleak` library for cross-platform BLE communication on Windows, macOS, and Linux.
+
+### Key Features
+
+- **Cross-platform BLE Support**: Windows, macOS, Linux via bleak library
+- **Real-time Data Reception**: CSV stream processing with configurable filtering
+- **Robust Connection Handling**: Auto-reconnection and timeout management
+- **Flexible Output Options**: Console output, file export, data filtering
+- **Developer Tools**: Type checking, linting, testing framework integration
+
+## 🛠 Installation and Setup
+
+### Prerequisites
+
+- **Python**: 3.12+ (required for type hints and modern async features)
+- **Bluetooth**: BLE-capable adapter and enabled system Bluetooth
+- **Operating System**: Windows, macOS, or Linux with BLE support
+
+### 1. Install uv Package Manager
+
+uv is a fast Python package and project management tool. Choose your platform:
+
+**Windows (PowerShell)**:
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**macOS/Linux**:
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Verify Installation**:
+```bash
+uv --version
+```
+
+### 2. Project Setup
+
+Synchronize virtual environment and dependencies from the project root:
+
+```bash
+# Navigate to receiver directory
+cd receiver/
+
+# Install dependencies and create virtual environment
+uv sync
+```
+
+This creates an isolated Python environment with all required dependencies including:
+- `bleak`: Cross-platform BLE library
+- `dash`: Web application framework (for future visualization)
+- `plotly`: Interactive plotting library
+- `pandas`: Data manipulation and analysis
+
+### 3. Usage Methods
+
+#### Method 1: Local Development (Recommended)
+
+Run from project virtual environment:
+
+```bash
+# Basic usage - receive data with clean output
+uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
+
+# Timeout protection - exit if no data for 5 seconds
+uv run xiao-nrf52840-sense-receiver --idle-timeout 5
+
+# Save CSV data to file
+uv run xiao-nrf52840-sense-receiver --no-header > sensor_data.csv
+
+# Specify device address directly (skip scanning)
+uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
+```
+
+#### Method 2: Global Tool Installation
+
+Install as system-wide tool (one-time setup):
+
+```bash
+# Install tool globally from current directory
+uv tool install .
+
+# Run from anywhere after installation
+uvx xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
+uvx xiao-nrf52840-sense-receiver --idle-timeout 10
+```
+
+## ⚙️ Command Line Options
+
+| Option | Description | Default | Example |
+|--------|-------------|---------|----------|
+| `--address <MAC>` | Direct BLE address (skip scanning) | Auto-discover | `--address "12:34:56:78:9A:BC"` |
+| `--device-name <NAME>` | Target device name for scanning | `"XIAO Sense IMU"` | `--device-name "My Sensor"` |
+| `--scan-timeout <sec>` | BLE scan timeout in seconds | 10.0 | `--scan-timeout 15` |
+| `--no-header` | Suppress CSV header output | Include header | `--no-header` |
+| `--drop-missing-audio` | Filter out audioRMS=-1.0 rows | Include all | `--drop-missing-audio` |
+| `--idle-timeout <sec>` | Exit if no data for N seconds | Unlimited | `--idle-timeout 30` |
+
+## 🔧 System Requirements
+
+### Windows
+- **Bluetooth**: System Bluetooth enabled in Settings
+- **Location Services**: Must be enabled (required for BLE scanning)
+- **Execution**: Local PowerShell (Remote Desktop may cause issues)
+- **Environment**: Native Windows (not WSL/virtualization)
+- **Drivers**: Bluetooth adapter properly recognized
+- **Device State**: XIAO device disconnected and advertising
+
+### macOS
+- **Bluetooth**: System Bluetooth enabled
+- **Permissions**: Allow Terminal/IDE Bluetooth access when prompted
+- **Device State**: XIAO device disconnected and advertising
+
+### Linux
+- **Bluetooth**: BlueZ stack installed and running
+- **Permissions**: User in `bluetooth` group or run with appropriate permissions
+- **Device State**: XIAO device disconnected and advertising
+
+## 🚑 Troubleshooting
+
+### Common Connection Issues
+
+**Error: `Failed to start scanner. Is Bluetooth turned on?`**
+- Verify system Bluetooth is enabled
+- **Windows**: Enable Location Services (required for BLE scanning)
+- Check Bluetooth adapter status in Device Manager
+- Try direct connection with `--address` if MAC address is known
+
+**Error: `Target device not found`**
+- Verify device is advertising (check XIAO board status)
+- Ensure device name matches (use `--device-name` if customized)
+- Increase scan timeout: `--scan-timeout 20`
+- Move devices closer together
+- Restart XIAO device advertising
+
+**Connection drops frequently**
+- Check BLE interference from other devices
+- Verify power supply stability on XIAO device
+- Use `--idle-timeout` to handle expected disconnections
+- Check distance between devices
+
+### Performance Issues
+
+**Slow data reception**
+- BLE connection parameters may need optimization
+- Check for system Bluetooth stack performance
+- Verify XIAO device battery level
+
+**Missing audio data (audioRMS = -1.0)**
+- Normal behavior when insufficient audio samples
+- Use `--drop-missing-audio` to filter these rows
+- Audio processing requires 160 samples minimum
+
+## 📊 Data Format
+
+The receiver processes CSV data with the following structure:
+
+```
+millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
+```
+
+| Field | Description | Unit | Range |
+|-------|-------------|------|-------|
+| `millis` | Timestamp since device boot | ms | 0 to ~49.7 days |
+| `ax,ay,az` | Accelerometer X,Y,Z | g | ±16g |
+| `gx,gy,gz` | Gyroscope X,Y,Z | dps | ±2000 dps |
+| `tempC` | Temperature | °C | Device dependent |
+| `audioRMS` | Audio RMS level | - | ≥0.0 or -1.0 (missing) |
+
+## 🔌 BLE Protocol Details
+
+**Nordic UART Service (NUS) UUIDs**:
+- **Service**: `6e400001-b5a3-f393-e0a9-e50e24dcca9e`
+- **TX Characteristic** (device→receiver): `6e400003-b5a3-f393-e0a9-e50e24dcca9e`
+- **RX Characteristic** (receiver→device): `6e400002-b5a3-f393-e0a9-e50e24dcca9e` (unused)
+
+**Data Transmission**:
+- **Format**: CSV lines terminated with `\n`
+- **Fragmentation**: BLE notifications may split lines; receiver reassembles
+- **Rate**: ~25Hz from XIAO device via BLE
+
+## 📝 Development
+
+### Code Quality Tools
+
+```bash
+# Format code
+uv run --frozen ruff format .
+
+# Lint code
+uv run --frozen ruff check .
+
+# Type checking
+uv run --frozen pyright
+
+# Run tests
+uv run --frozen pytest
+```
+
+### Development Guidelines
+
+- **Package Management**: ONLY use `uv`, never `pip`
+- **Type Hints**: Required for all public functions
+- **Documentation**: Google-style docstrings for public APIs
+- **Testing**: Write tests for new features and bug fixes
+- **Logging**: Use Python logging module, no `print()` statements
+
+### Adding Dependencies
+
+```bash
+# Add runtime dependency
+uv add package-name
+
+# Add development dependency
+uv add --dev package-name
+
+# Upgrade specific package
+uv add package-name --upgrade-package package-name
+```
+
+## 📚 Reference Documentation
+
+- [bleak Documentation](https://bleak.readthedocs.io/): Python BLE library
+- [Nordic UART Service](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/libraries/bluetooth_services/services/nus.html): BLE protocol specification
+- [uv Documentation](https://docs.astral.sh/uv/): Package manager guide
+- [Python asyncio](https://docs.python.org/3/library/asyncio.html): Asynchronous programming
+
+## 🚀 Future Enhancements
+
+- **Real-time Visualization**: Web-based dashboard using Dash/Plotly
+- **Data Analysis Tools**: Built-in signal processing and filtering
+- **Multiple Device Support**: Concurrent data collection from multiple sensors
+- **Database Integration**: Direct logging to time-series databases
+- **Mobile App**: Companion mobile application for monitoring
