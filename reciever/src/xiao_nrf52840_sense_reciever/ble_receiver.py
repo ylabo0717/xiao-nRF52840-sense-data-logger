@@ -94,7 +94,7 @@ class BufferStats:
 
 
 class DataBuffer:
-    """Thread-safe circular buffer for IMU data."""
+    """Thread-safe circular buffer for IMU data with index-based access for recording."""
 
     def __init__(self, max_size: int = 1000):
         self._max_size = max_size
@@ -102,10 +102,19 @@ class DataBuffer:
         self._lock = threading.RLock()
         self._stats = BufferStats()
 
+        # Index-based access for recording (design doc requirement)
+        self._write_index = 0  # Monotonic counter for all writes
+        self._base_index = 0  # Index of first element currently in buffer
+
     def append(self, row: ImuRow) -> None:
         """Add a new data row to the buffer."""
         with self._lock:
+            # Check if we're about to drop data due to circular buffer overflow
+            if len(self._buffer) == self._max_size:
+                self._base_index += 1  # First element will be dropped
+
             self._buffer.append(row)
+            self._write_index += 1
             self._stats.fill_level = len(self._buffer)
             self._stats.update(row)
 
@@ -123,11 +132,49 @@ class DataBuffer:
         with self._lock:
             return list(self._buffer)
 
+    def get_since_index(self, last_index: int) -> tuple[list[ImuRow], int, bool]:
+        """
+        Get samples since last_index with drop detection.
+
+        This is the core method for recording data without affecting visualization.
+        Used by RecordingWorkerThread to efficiently track new data.
+
+        Args:
+            last_index: Index of the last sample we processed
+
+        Returns:
+            - samples: List of new samples since last_index
+            - next_index: Index to use for next call
+            - dropped: True if data was lost due to buffer overflow
+        """
+        with self._lock:
+            # Detect if requested data was dropped from circular buffer
+            dropped = last_index < self._base_index
+
+            if dropped:
+                # Return all available data and warn about loss
+                return list(self._buffer), self._write_index, True
+
+            # Calculate slice indices within current buffer
+            start_offset = max(0, last_index - self._base_index)
+            end_offset = self._write_index - self._base_index
+
+            if start_offset >= len(self._buffer):
+                # No new data available
+                return [], self._write_index, False
+
+            # Return slice of buffer containing new data
+            samples = list(self._buffer)[start_offset:end_offset]
+            return samples, self._write_index, False
+
     def clear(self) -> None:
         """Clear all data from the buffer."""
         with self._lock:
             self._buffer.clear()
             self._stats.fill_level = 0
+            # Reset index tracking
+            self._write_index = 0
+            self._base_index = 0
 
     @property
     def stats(self) -> BufferStats:
@@ -145,6 +192,12 @@ class DataBuffer:
     def max_size(self) -> int:
         """Get maximum buffer size."""
         return self._max_size
+
+    @property
+    def current_write_index(self) -> int:
+        """Get current write index for recording initialization."""
+        with self._lock:
+            return self._write_index
 
 
 class DataSource(ABC):

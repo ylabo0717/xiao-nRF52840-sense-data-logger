@@ -201,3 +201,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+test_output/
+recordings/
+test_recordings/
+debug_recordings/
+

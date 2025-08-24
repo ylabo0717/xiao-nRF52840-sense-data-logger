@@ -28,6 +28,13 @@ class OscilloscopeApp:
         self._stop_event = threading.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # Recording manager (new)
+        from ..data_recorder import RecorderManager
+        from pathlib import Path
+
+        recordings_dir = Path.cwd() / "recordings"
+        self.recorder = RecorderManager(self.buffer, recordings_dir)
+
         # Create Dash app
         self.app = dash.Dash(__name__)
         self._setup_layout()
@@ -66,7 +73,58 @@ class OscilloscopeApp:
                                 html.Div(id="buffer-stats", children="No data"),
                             ],
                             style={
-                                "width": "65%",
+                                "width": "35%",
+                                "display": "inline-block",
+                                "verticalAlign": "top",
+                                "padding": "10px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "5px",
+                                "margin": "5px",
+                            },
+                        ),
+                        # Recording Controls Panel
+                        html.Div(
+                            [
+                                html.H3("Recording Controls"),
+                                html.Div(
+                                    [
+                                        html.Button(
+                                            "🔴 Record",
+                                            id="start-recording-btn",
+                                            style={
+                                                "marginRight": "10px",
+                                                "padding": "8px 16px",
+                                                "backgroundColor": "#dc3545",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                            },
+                                        ),
+                                        html.Button(
+                                            "⏹️ Stop",
+                                            id="stop-recording-btn",
+                                            disabled=True,
+                                            style={
+                                                "marginRight": "10px",
+                                                "padding": "8px 16px",
+                                                "backgroundColor": "#6c757d",
+                                                "color": "white",
+                                                "border": "none",
+                                                "borderRadius": "4px",
+                                                "cursor": "pointer",
+                                            },
+                                        ),
+                                    ],
+                                    style={"marginBottom": "10px"},
+                                ),
+                                html.Div(
+                                    id="recording-status", children="⚪ Ready to record"
+                                ),
+                                html.Div(id="recording-info", children=""),
+                            ],
+                            style={
+                                "width": "30%",
                                 "display": "inline-block",
                                 "verticalAlign": "top",
                                 "padding": "10px",
@@ -94,6 +152,8 @@ class OscilloscopeApp:
                     interval=self.update_interval,  # in milliseconds
                     n_intervals=0,
                 ),
+                # Hidden div to store recording state
+                html.Div(id="recording-state-store", style={"display": "none"}),
             ]
         )
 
@@ -106,6 +166,12 @@ class OscilloscopeApp:
                 Output("connection-status", "children"),
                 Output("connection-details", "children"),
                 Output("buffer-stats", "children"),
+                Output("recording-status", "children"),
+                Output("recording-info", "children"),
+                Output("start-recording-btn", "disabled"),
+                Output("stop-recording-btn", "disabled"),
+                Output("start-recording-btn", "style"),
+                Output("stop-recording-btn", "style"),
             ],
             [Input("interval-component", "n_intervals")],
         )
@@ -203,12 +269,142 @@ class OscilloscopeApp:
                 ]
             )
 
+            # Get recording status
+            recording_status_obj = self.recorder.get_status()
+
+            # Recording status display
+            if recording_status_obj.is_recording:
+                recording_status_text = "🔴 Recording"
+                recording_status_color = "red"
+                start_btn_disabled = True
+                stop_btn_disabled = False
+                start_btn_bg = "#6c757d"  # Gray when disabled
+                stop_btn_bg = "#dc3545"  # Red when active
+            else:
+                recording_status_text = "⚪ Ready to record"
+                recording_status_color = "gray"
+                start_btn_disabled = False
+                stop_btn_disabled = True
+                start_btn_bg = "#dc3545"  # Red when active
+                stop_btn_bg = "#6c757d"  # Gray when disabled
+
+            recording_status_display = html.Span(
+                recording_status_text,
+                style={
+                    "color": recording_status_color,
+                    "fontWeight": "bold",
+                    "fontSize": "16px",
+                },
+            )
+
+            # Recording information display
+            if recording_status_obj.is_recording:
+                duration_str = f"{recording_status_obj.duration_seconds:.1f}s"
+                samples_str = f"{recording_status_obj.samples_recorded:,}"
+                file_size_mb = recording_status_obj.file_size_bytes / 1024 / 1024
+
+                recording_info_display = html.Div(
+                    [
+                        html.P(
+                            f"⏱️ Duration: {duration_str}",
+                            style={"margin": "2px 0", "fontSize": "12px"},
+                        ),
+                        html.P(
+                            f"📊 Samples: {samples_str}",
+                            style={"margin": "2px 0", "fontSize": "12px"},
+                        ),
+                        html.P(
+                            f"💾 Size: {file_size_mb:.1f} MB",
+                            style={"margin": "2px 0", "fontSize": "12px"},
+                        ),
+                    ]
+                )
+            else:
+                recording_info_display = html.Div(
+                    [
+                        html.P(
+                            "Click Record to start capturing data",
+                            style={
+                                "margin": "2px 0",
+                                "fontSize": "12px",
+                                "color": "#666",
+                            },
+                        ),
+                    ]
+                )
+
+            # Button styles
+            start_btn_style = {
+                "marginRight": "10px",
+                "padding": "8px 16px",
+                "backgroundColor": start_btn_bg,
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer" if not start_btn_disabled else "not-allowed",
+                "opacity": "0.6" if start_btn_disabled else "1.0",
+            }
+
+            stop_btn_style = {
+                "marginRight": "10px",
+                "padding": "8px 16px",
+                "backgroundColor": stop_btn_bg,
+                "color": "white",
+                "border": "none",
+                "borderRadius": "4px",
+                "cursor": "pointer" if not stop_btn_disabled else "not-allowed",
+                "opacity": "0.6" if stop_btn_disabled else "1.0",
+            }
+
             return (
                 multi_fig,
                 html.Span(connection_status, style=status_style),
                 connection_details,
                 buffer_info,
+                recording_status_display,
+                recording_info_display,
+                start_btn_disabled,
+                stop_btn_disabled,
+                start_btn_style,
+                stop_btn_style,
             )
+
+        # Recording control callbacks
+        @self.app.callback(  # type: ignore
+            Output("recording-state-store", "children"),
+            [Input("start-recording-btn", "n_clicks")],
+            prevent_initial_call=True,
+        )
+        def start_recording(n_clicks: int):  # type: ignore
+            if n_clicks and not self.recorder.is_recording:
+                try:
+                    self.recorder.start_recording()
+                    print("🎬 Recording started successfully")
+                    return "recording"
+                except Exception as e:
+                    print(f"❌ Failed to start recording: {e}")
+                    return "error"
+            return "idle"
+
+        @self.app.callback(  # type: ignore
+            Output("recording-state-store", "children", allow_duplicate=True),
+            [Input("stop-recording-btn", "n_clicks")],
+            prevent_initial_call=True,
+        )
+        def stop_recording(n_clicks: int):  # type: ignore
+            if n_clicks and self.recorder.is_recording:
+                try:
+                    session_info = self.recorder.stop_recording()
+                    print(
+                        f"🏁 Recording stopped: {session_info.total_samples} samples, "
+                        f"{session_info.duration_seconds:.1f}s, "
+                        f"{session_info.file_size_bytes} bytes"
+                    )
+                    return "stopped"
+                except Exception as e:
+                    print(f"❌ Failed to stop recording: {e}")
+                    return "error"
+            return "idle"
 
     def _data_collection_worker(self) -> None:
         """Background worker to collect data from the data source with retry logic."""
