@@ -7,14 +7,15 @@
 
 ## 🚀 Overview
 
-Python BLE receiver tool that collects CSV telemetry data transmitted by XIAO nRF52840 Sense via BLE (Nordic UART Service compatible). Uses `bleak` library for cross-platform BLE communication on Windows, macOS, and Linux.
+Python BLE receiver tool that collects sensor data transmitted by XIAO nRF52840 Sense via BLE (Nordic UART Service compatible) and provides real-time oscilloscope visualization or CSV output. Uses `bleak` library for cross-platform BLE communication on Windows, macOS, and Linux.
 
 ### Key Features
 
 - **Cross-platform BLE Support**: Windows, macOS, Linux via bleak library
-- **Real-time Data Reception**: CSV stream processing with configurable filtering
+- **Real-time Oscilloscope**: Interactive web-based visualization with live sensor plots
+- **CSV Data Export**: Stream processing with configurable filtering and console output
 - **Robust Connection Handling**: Auto-reconnection and timeout management
-- **Flexible Output Options**: Console output, file export, data filtering
+- **Flexible Output Modes**: Web oscilloscope (default) or CSV export mode
 - **Developer Tools**: Type checking, linting, testing framework integration
 
 ## 🛠 Installation and Setup
@@ -58,8 +59,8 @@ uv sync
 
 This creates an isolated Python environment with all required dependencies including:
 - `bleak`: Cross-platform BLE library
-- `dash`: Web application framework (for future visualization)
-- `plotly`: Interactive plotting library
+- `dash`: Web application framework for oscilloscope interface
+- `plotly`: Interactive plotting library for real-time visualization
 - `pandas`: Data manipulation and analysis
 
 ### 3. Usage Methods
@@ -69,14 +70,20 @@ This creates an isolated Python environment with all required dependencies inclu
 Run from project virtual environment:
 
 ```bash
-# Basic usage - receive data with clean output
-uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
+# Default usage - start web oscilloscope
+uv run xiao-nrf52840-sense-receiver
 
-# Timeout protection - exit if no data for 5 seconds
-uv run xiao-nrf52840-sense-receiver --idle-timeout 5
+# CSV output mode - receive data with clean output
+uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+
+# Oscilloscope with custom port
+uv run xiao-nrf52840-sense-receiver --port 9000
+
+# CSV mode with timeout protection - exit if no data for 5 seconds
+uv run xiao-nrf52840-sense-receiver --csv --idle-timeout 5
 
 # Save CSV data to file
-uv run xiao-nrf52840-sense-receiver --no-header > sensor_data.csv
+uv run xiao-nrf52840-sense-receiver --csv --no-header > sensor_data.csv
 
 # Specify device address directly (skip scanning)
 uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
@@ -91,19 +98,23 @@ Install as system-wide tool (one-time setup):
 uv tool install .
 
 # Run from anywhere after installation
-uvx xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
-uvx xiao-nrf52840-sense-receiver --idle-timeout 10
+uvx xiao-nrf52840-sense-receiver                                    # Start oscilloscope
+uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
 
 ## ⚙️ Command Line Options
 
 | Option | Description | Default | Example |
 |--------|-------------|---------|----------|
+| `--csv` | Enable CSV output mode | Oscilloscope mode | `--csv` |
 | `--address <MAC>` | Direct BLE address (skip scanning) | Auto-discover | `--address "12:34:56:78:9A:BC"` |
 | `--device-name <NAME>` | Target device name for scanning | `"XIAO Sense IMU"` | `--device-name "My Sensor"` |
 | `--scan-timeout <sec>` | BLE scan timeout in seconds | 10.0 | `--scan-timeout 15` |
-| `--no-header` | Suppress CSV header output | Include header | `--no-header` |
-| `--drop-missing-audio` | Filter out audioRMS=-1.0 rows | Include all | `--drop-missing-audio` |
+| `--port <number>` | Web server port for oscilloscope | 8050 | `--port 9000` |
+| `--mock` | Use mock data (no BLE device needed) | Real BLE data | `--mock` |
+| `--no-header` | Suppress CSV header (CSV mode only) | Include header | `--no-header` |
+| `--drop-missing-audio` | Filter audioRMS=-1.0 (CSV mode only) | Include all | `--drop-missing-audio` |
 | `--idle-timeout <sec>` | Exit if no data for N seconds | Unlimited | `--idle-timeout 30` |
 
 ## 🔧 System Requirements
@@ -235,9 +246,16 @@ uv add package-name --upgrade-package package-name
 - [uv Documentation](https://docs.astral.sh/uv/): Package manager guide
 - [Python asyncio](https://docs.python.org/3/library/asyncio.html): Asynchronous programming
 
-## 🚀 Future Enhancements
+## 🚀 Current Features & Future Enhancements
 
-- **Real-time Visualization**: Web-based dashboard using Dash/Plotly
+### ✅ Current Features
+- **Real-time Oscilloscope**: Interactive web-based visualization with live sensor plots
+- **CSV Data Export**: Configurable stream processing and file output
+- **Cross-platform BLE**: Windows, macOS, Linux support via bleak
+- **Mock Data Mode**: Testing without physical device
+
+### 🔮 Future Enhancements
+- **Enhanced Visualization**: Additional plot types and analysis tools
 - **Data Analysis Tools**: Built-in signal processing and filtering
 - **Multiple Device Support**: Concurrent data collection from multiple sensors
 - **Database Integration**: Direct logging to time-series databases

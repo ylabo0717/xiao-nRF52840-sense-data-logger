@@ -7,14 +7,15 @@
 
 ## 🚀 概要
 
-XIAO nRF52840 SenseがBLE（Nordic UARTサービス互換）で送信するCSVテレメトリデータを収集するPython BLEレシーバーツールです。`bleak`ライブラリを使用してWindows、macOS、LinuxでのクロスプラットフォームBLE通信を実現しています。
+XIAO nRF52840 SenseがBLE（Nordic UARTサービス互換）で送信するセンサーデータを収集し、リアルタイムオシロスコープ可視化またはCSV出力を提供するPython BLEレシーバーツールです。`bleak`ライブラリを使用してWindows、macOS、LinuxでのクロスプラットフォームBLE通信を実現しています。
 
 ### 主要機能
 
 - **クロスプラットフォームBLEサポート**: bleakライブラリによるWindows、macOS、Linux対応
-- **リアルタイムデータ受信**: 設定可能なフィルタリング付きCSVストリーム処理
+- **リアルタイムオシロスコープ**: ライブセンサープロット付きインタラクティブWebベース可視化
+- **CSVデータエクスポート**: 設定可能なフィルタリングとコンソール出力付きストリーム処理
 - **堅牢な接続ハンドリング**: 自動再接続とタイムアウト管理
-- **柔軟な出力オプション**: コンソール出力、ファイルエクスポート、データフィルタリング
+- **柔軟な出力モード**: Webオシロスコープ（デフォルト）またはCSVエクスポートモード
 - **開発者ツール**: 型チェック、リンティング、テストフレームワーク統合
 
 ## 🛠 インストールとセットアップ
@@ -58,8 +59,8 @@ uv sync
 
 これにより、以下を含む全ての必要依存関係を持つ分離されたPython環境が作成されます：
 - `bleak`: クロスプラットフォームBLEライブラリ
-- `dash`: Webアプリケーションフレームワーク（将来の可視化用）
-- `plotly`: インタラクティブプロッティングライブラリ
+- `dash`: オシロスコープインターフェース用Webアプリケーションフレームワーク
+- `plotly`: リアルタイム可視化用インタラクティブプロッティングライブラリ
 - `pandas`: データ操作・解析
 
 ### 3. 使用方法
@@ -69,14 +70,20 @@ uv sync
 プロジェクト仮想環境から実行：
 
 ```bash
-# 基本使用法 - クリーンな出力でデータ受信
-uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
+# デフォルト使用法 - Webオシロスコープ起動
+uv run xiao-nrf52840-sense-receiver
 
-# タイムアウト保護 - 5秒間データがなければ終了
-uv run xiao-nrf52840-sense-receiver --idle-timeout 5
+# CSV出力モード - クリーンな出力でデータ受信
+uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+
+# カスタムポートでオシロスコープ
+uv run xiao-nrf52840-sense-receiver --port 9000
+
+# CSVモードでタイムアウト保護 - 5秒間データがなければ終了
+uv run xiao-nrf52840-sense-receiver --csv --idle-timeout 5
 
 # CSVデータをファイル保存
-uv run xiao-nrf52840-sense-receiver --no-header > sensor_data.csv
+uv run xiao-nrf52840-sense-receiver --csv --no-header > sensor_data.csv
 
 # デバイスアドレス直接指定（スキャンをスキップ）
 uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
@@ -91,19 +98,23 @@ uv run xiao-nrf52840-sense-receiver --address "12:34:56:78:9A:BC"
 uv tool install .
 
 # インストール後はどこからでも実行可能
-uvx xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
-uvx xiao-nrf52840-sense-receiver --idle-timeout 10
+uvx xiao-nrf52840-sense-receiver                                           # オシロスコープ起動
+uvx xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
+uvx xiao-nrf52840-sense-receiver --csv --idle-timeout 10
 ```
 
 ## ⚙️ コマンドラインオプション
 
 | オプション | 説明 | デフォルト | 例 |
 |-----------|------|-----------|---|
+| `--csv` | CSV出力モードを有効化 | オシロスコープモード | `--csv` |
 | `--address <MAC>` | 直接BLEアドレス指定（スキャンをスキップ） | 自動発見 | `--address "12:34:56:78:9A:BC"` |
 | `--device-name <NAME>` | スキャン対象デバイス名 | `"XIAO Sense IMU"` | `--device-name "My Sensor"` |
 | `--scan-timeout <sec>` | BLEスキャンタイムアウト秒数 | 10.0 | `--scan-timeout 15` |
-| `--no-header` | CSVヘッダー出力を抑制 | ヘッダー含む | `--no-header` |
-| `--drop-missing-audio` | audioRMS=-1.0行をフィルター | 全て含む | `--drop-missing-audio` |
+| `--port <number>` | オシロスコープ用Webサーバーポート | 8050 | `--port 9000` |
+| `--mock` | Mockデータを使用（BLEデバイス不要） | 実際のBLEデータ | `--mock` |
+| `--no-header` | CSVヘッダー出力を抑制（CSVモード時のみ） | ヘッダー含む | `--no-header` |
+| `--drop-missing-audio` | audioRMS=-1.0行をフィルター（CSVモード時のみ） | 全て含む | `--drop-missing-audio` |
 | `--idle-timeout <sec>` | N秒間データなしで終了 | 無制限 | `--idle-timeout 30` |
 
 ## 🔧 システム要件
@@ -235,9 +246,16 @@ uv add package-name --upgrade-package package-name
 - [uv Documentation](https://docs.astral.sh/uv/): パッケージマネージャーガイド
 - [Python asyncio](https://docs.python.org/3/library/asyncio.html): 非同期プログラミング
 
-## 🚀 将来の機能拡張
+## 🚀 現在の機能と将来の機能拡張
 
-- **リアルタイム可視化**: Dash/Plotlyを使用したWebベースダッシュボード
+### ✅ 現在の機能
+- **リアルタイムオシロスコープ**: ライブセンサープロット付きインタラクティブWebベース可視化
+- **CSVデータエクスポート**: 設定可能なストリーム処理とファイル出力
+- **クロスプラットフォームBLE**: bleakによるWindows、macOS、Linuxサポート
+- **Mockデータモード**: 物理デバイスなしでのテスト
+
+### 🔮 将来の機能拡張
+- **可視化の強化**: 追加のプロットタイプと解析ツール
 - **データ解析ツール**: 内蔵信号処理とフィルタリング
 - **複数デバイス対応**: 複数センサーからの同時データ収集
 - **データベース統合**: 時系列データベースへの直接ロギング

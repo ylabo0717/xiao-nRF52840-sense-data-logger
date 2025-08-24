@@ -12,20 +12,10 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="xiao-nrf52840-sense-receiver",
-        description="XIAO nRF52840 Sense から BLE (NUS) 経由で CSV テレメトリを受信して標準出力へ流します。",
+        description="XIAO nRF52840 Sense から BLE (NUS) 経由で CSV テレメトリを受信してオシロスコープ表示、またはCSVを標準出力へ流します。",
     )
     parser.add_argument(
-        "--address", help="接続するデバイスの BLE アドレス (未指定で自動検出)"
-    )
-    parser.add_argument(
-        "--no-header",
-        action="store_true",
-        help="先頭にヘッダ行を出力しない",
-    )
-    parser.add_argument(
-        "--drop-missing-audio",
-        action="store_true",
-        help="audioRMS=-1.0 の行を除外",
+        "--address", help="接続するデバイスの BLE アドレス （未指定で自動検出)"
     )
     parser.add_argument(
         "--device-name",
@@ -63,11 +53,6 @@ def main() -> None:
         help="ログをファイルにも出力（既定: 標準エラーのみ）",
     )
     parser.add_argument(
-        "--oscilloscope",
-        action="store_true",
-        help="オシロスコープWeb UI を起動",
-    )
-    parser.add_argument(
         "--port",
         type=int,
         default=8050,
@@ -79,9 +64,26 @@ def main() -> None:
         help="テスト用のMockデータを使用（BLEデバイス不要）",
     )
 
+    # CSV出力モードのオプション（デフォルトはオシロスコープ）
+    parser.add_argument(
+        "--csv",
+        action="store_true",
+        help="CSV出力モード（標準出力へCSVを流す）",
+    )
+    parser.add_argument(
+        "--no-header",
+        action="store_true",
+        help="先頭にヘッダ行を出力しない（CSV出力モード時のみ有効）",
+    )
+    parser.add_argument(
+        "--drop-missing-audio",
+        action="store_true",
+        help="audioRMS=-1.0 の行を除外（CSV出力モード時のみ有効）",
+    )
+
     args = parser.parse_args()
 
-    # ロギング初期化（CSVはstdout、ログはstderr/ファイルへ）
+    # ロギング初期化（CSV出力時はstdout、ログはstderr/ファイルへ）
     level = getattr(logging, str(args.log_level).upper(), logging.WARNING)
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if args.log_file:
@@ -98,8 +100,19 @@ def main() -> None:
         force=True,  # 他のbasicConfigに影響されないよう強制
     )
 
-    if args.oscilloscope:
-        # オシロスコープモードで起動
+    if args.csv:
+        # CSV出力モード
+        code = run(
+            address=args.address,
+            show_header=not args.no_header,
+            drop_missing_audio=args.drop_missing_audio,
+            device_name=args.device_name,
+            scan_timeout=args.scan_timeout,
+            idle_timeout=args.idle_timeout,
+        )
+        raise SystemExit(code)
+    else:
+        # デフォルト: オシロスコープモード
         from .oscilloscope import create_app
         from .ble_receiver import BleDataSource, MockDataSource
 
@@ -158,15 +171,3 @@ def main() -> None:
         except Exception as e:
             logger.error(f"❌ Failed to start oscilloscope: {e}")
             raise SystemExit(1)
-
-    else:
-        # 通常のCSV出力モード
-        code = run(
-            address=args.address,
-            show_header=not args.no_header,
-            drop_missing_audio=args.drop_missing_audio,
-            device_name=args.device_name,
-            scan_timeout=args.scan_timeout,
-            idle_timeout=args.idle_timeout,
-        )
-        raise SystemExit(code)

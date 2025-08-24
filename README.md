@@ -7,12 +7,12 @@
 
 ## 🚀 Overview
 
-A dual-component sensor data logging system for XIAO nRF52840 Sense microcontroller that collects IMU (accelerometer/gyroscope) and PDM microphone data, streaming it over BLE and USB Serial in CSV format.
+A dual-component sensor data logging system for XIAO nRF52840 Sense microcontroller that collects IMU (accelerometer/gyroscope) and PDM microphone data, providing real-time web oscilloscope visualization or CSV data export over BLE and USB Serial.
 
 ### System Architecture
 
 - **Sender**: C++/Arduino firmware running on XIAO nRF52840 Sense
-- **Receiver**: Python BLE client tool for data collection and visualization
+- **Receiver**: Python BLE client with web oscilloscope interface and CSV export
 
 ## 📦 Components
 
@@ -24,8 +24,9 @@ A dual-component sensor data logging system for XIAO nRF52840 Sense microcontrol
 
 ### [Receiver (Python Tool)](./receiver/)
 - **Platform**: Python 3.12+ with uv package manager
-- **Features**: BLE data reception, CSV export, real-time visualization
-- **Dependencies**: bleak (BLE), dash (web UI), plotly (charts)
+- **Default Mode**: Interactive web oscilloscope with real-time sensor plots
+- **CSV Mode**: Command-line data export with filtering options
+- **Dependencies**: bleak (BLE), dash (web UI), plotly (visualization), pandas (data)
 
 ## 🚀 Quick Start
 
@@ -48,10 +49,16 @@ pio device monitor -b 115200  # Monitor serial output
 
 ### 2. Data Reception
 
+#### Web Oscilloscope (Default)
 ```bash
 cd receiver/
 uv sync                   # Install dependencies
-uv run xiao-nrf52840-sense-receiver --no-header --drop-missing-audio
+uv run xiao-nrf52840-sense-receiver          # Start web interface at http://localhost:8050
+```
+
+#### CSV Export Mode
+```bash
+uv run xiao-nrf52840-sense-receiver --csv --no-header --drop-missing-audio
 ```
 
 ## 📊 Data Format
@@ -77,10 +84,15 @@ See [receiver/README.md](./receiver/README.md) for Python development guidelines
 
 ## 🎯 Use Cases
 
-- **Motion Analysis**: IMU data logging for robotics and movement studies
+### Real-time Monitoring
+- **Live Oscilloscope**: Interactive web interface for real-time sensor visualization
+- **Motion Analysis**: IMU data monitoring for robotics and movement studies
 - **Audio Monitoring**: Ambient sound level tracking with accelerometer context
+
+### Data Collection & Analysis
+- **CSV Data Export**: Long-term data logging with filtering and export options
 - **IoT Prototyping**: Wireless sensor data collection with BLE connectivity
-- **Educational Projects**: Real-time sensor data visualization and analysis
+- **Educational Projects**: Sensor data analysis and signal processing studies
 
 ## 🛠 System Requirements
 
