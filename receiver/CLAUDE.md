@@ -37,6 +37,19 @@ This document contains critical information about working with this codebase. Fo
    - New features require tests
    - Bug fixes require regression tests
 
+5. Logging Standards
+   - NEVER use print() statements in production code
+   - Use Python logging module exclusively for all output
+   - Logger naming: use `logger = logging.getLogger(__name__)`
+   - Log levels:
+     - DEBUG: Detailed diagnostic information
+     - INFO: General information, user-facing status messages
+     - WARNING: Potential issues that don't prevent operation
+     - ERROR: Serious errors that may affect functionality
+   - Exception handling: Log exceptions with appropriate context
+   - CSV output: Only exception is intentional data output (e.g., CSV streams)
+   - Configure logging in main entry points, not individual modules
+
 - For commits fixing bugs or adding features based on user reports add:
 
   ```bash

@@ -3,6 +3,7 @@ Dash application for oscilloscope visualization.
 """
 
 import asyncio
+import logging
 import threading
 from typing import Any, List, Optional, Tuple
 
@@ -11,6 +12,8 @@ from dash import dcc, html, Input, Output
 
 from ..ble_receiver import DataBuffer, DataSource
 from .plots import create_multi_plot_layout
+
+logger = logging.getLogger(__name__)
 
 
 class OscilloscopeApp:
@@ -497,7 +500,7 @@ class OscilloscopeApp:
 
             # Debug logging - reduced frequency after fixing buffer issue
             if n_intervals % 100 == 0:  # Log every ~7 seconds at 15fps
-                print(
+                logger.debug(
                     f"🔍 UI Debug: Buffer size={self.buffer.size}, Sample rate={stats.sample_rate:.1f}Hz, Status: {connection_status}"
                 )
 
@@ -511,7 +514,7 @@ class OscilloscopeApp:
 
             # Debug: Log connection status periodically
             if n_intervals % 60 == 0:  # Every ~4 seconds
-                print(
+                logger.debug(
                     f"🔍 UI Debug: is_connected={is_connected}, buffer_size={self.buffer.size}, "
                     f"stats.fill_level={stats.fill_level}, stats.sample_rate={stats.sample_rate:.1f}"
                 )
@@ -736,10 +739,10 @@ class OscilloscopeApp:
             if n_clicks and not self.recorder.is_recording:
                 try:
                     self.recorder.start_recording()
-                    print("🎬 Recording started successfully")
+                    logger.info("🎬 Recording started successfully")
                     return "recording"
                 except Exception as e:
-                    print(f"❌ Failed to start recording: {e}")
+                    logger.error(f"❌ Failed to start recording: {e}")
                     return "error"
             return "idle"
 
@@ -752,14 +755,14 @@ class OscilloscopeApp:
             if n_clicks and self.recorder.is_recording:
                 try:
                     session_info = self.recorder.stop_recording()
-                    print(
+                    logger.info(
                         f"🏁 Recording stopped: {session_info.total_samples} samples, "
                         f"{session_info.duration_seconds:.1f}s, "
                         f"{session_info.file_size_bytes} bytes"
                     )
                     return "stopped"
                 except Exception as e:
-                    print(f"❌ Failed to stop recording: {e}")
+                    logger.error(f"❌ Failed to stop recording: {e}")
                     return "error"
             return "idle"
 
@@ -777,14 +780,14 @@ class OscilloscopeApp:
                         self.start_data_collection()
                         self._collection_running = True
                         self._collection_paused = False
-                        print("▶️ Data collection started")
+                        logger.info("▶️ Data collection started")
                     elif self._collection_paused:
                         # Resume paused collection
                         self._collection_paused = False
-                        print("▶️ Data collection resumed")
+                        logger.info("▶️ Data collection resumed")
                     return "running"
                 except Exception as e:
-                    print(f"❌ Failed to start/resume collection: {e}")
+                    logger.error(f"❌ Failed to start/resume collection: {e}")
                     return "error"
             return "idle"
 
@@ -797,10 +800,10 @@ class OscilloscopeApp:
             if n_clicks and self._collection_running and not self._collection_paused:
                 try:
                     self._collection_paused = True
-                    print("⏸️ Data collection paused")
+                    logger.info("⏸️ Data collection paused")
                     return "paused"
                 except Exception as e:
-                    print(f"❌ Failed to pause collection: {e}")
+                    logger.error(f"❌ Failed to pause collection: {e}")
                     return "error"
             return "idle"
 
@@ -842,18 +845,20 @@ class OscilloscopeApp:
 
             while not self._stop_event.is_set() and retry_count < max_retries:
                 try:
-                    print(
+                    logger.info(
                         f"🔄 Starting data source (attempt {retry_count + 1}/{max_retries})..."
                     )
                     await self.data_source.start()
 
                     data_count = 0
 
-                    print("✅ Data source started, beginning data collection...")
+                    logger.info("✅ Data source started, beginning data collection...")
 
                     async for row in self.data_source.get_data_stream():
                         if self._stop_event.is_set():
-                            print("🛑 Stop event received, ending data collection")
+                            logger.info(
+                                "🛑 Stop event received, ending data collection"
+                            )
                             break
 
                         # Check if collection is paused
@@ -868,7 +873,7 @@ class OscilloscopeApp:
                         # Log progress periodically
                         if data_count % 25 == 1:  # Log every 25 samples (~1 second)
                             buffer_stats = self.buffer.stats
-                            print(
+                            logger.debug(
                                 f"📊 Background: Collected {data_count} samples, "
                                 f"buffer: {self.buffer.size}/{self.buffer.max_size}, "
                                 f"rate: {buffer_stats.sample_rate:.1f}Hz"
@@ -876,29 +881,29 @@ class OscilloscopeApp:
 
                     # If we exit the loop normally, we're done
                     if not self._stop_event.is_set():
-                        print("⚠️ Data stream ended unexpectedly")
+                        logger.warning("⚠️ Data stream ended unexpectedly")
                     break
 
                 except asyncio.CancelledError:
-                    print("🛑 Data collection cancelled")
+                    logger.info("🛑 Data collection cancelled")
                     break
 
                 except Exception as e:
                     retry_count += 1
-                    print(
+                    logger.error(
                         f"❌ Data collection error (attempt {retry_count}/{max_retries}): {e}"
                     )
-                    print(f"❌ Error type: {type(e).__name__}")
+                    logger.error(f"❌ Error type: {type(e).__name__}")
                     import traceback
 
-                    print("❌ Full traceback:")
+                    logger.error("❌ Full traceback:")
                     traceback.print_exc()
 
                     if retry_count < max_retries:
                         current_delay = retry_delay * (
                             backoff_multiplier ** (retry_count - 1)
                         )
-                        print(
+                        logger.info(
                             f"⏳ Retrying in {current_delay:.1f} seconds... (retry {retry_count}/{max_retries})"
                         )
                         try:
@@ -906,20 +911,24 @@ class OscilloscopeApp:
                         except asyncio.CancelledError:
                             break
                     else:
-                        print(f"💥 Max retries ({max_retries}) exceeded. Giving up.")
-                        print("💡 Troubleshooting tips:")
-                        print("   - Check if XIAO device is powered on")
-                        print("   - Verify device is advertising as 'XIAO Sense IMU'")
-                        print("   - Move device closer to reduce interference")
-                        print("   - Restart the device and try again")
+                        logger.error(
+                            f"💥 Max retries ({max_retries}) exceeded. Giving up."
+                        )
+                        logger.info("💡 Troubleshooting tips:")
+                        logger.info("   - Check if XIAO device is powered on")
+                        logger.info(
+                            "   - Verify device is advertising as 'XIAO Sense IMU'"
+                        )
+                        logger.info("   - Move device closer to reduce interference")
+                        logger.info("   - Restart the device and try again")
 
                 finally:
                     try:
                         await self.data_source.stop()
                     except Exception as e:
-                        print(f"⚠️ Error stopping data source: {e}")
+                        logger.warning(f"⚠️ Error stopping data source: {e}")
 
-            print("🏁 Data collection worker finished")
+            logger.info("🏁 Data collection worker finished")
 
         # Create new event loop for this thread
         self._loop = asyncio.new_event_loop()
@@ -928,7 +937,7 @@ class OscilloscopeApp:
         try:
             self._loop.run_until_complete(collect_data_with_retry())
         except Exception as e:
-            print(f"💥 Worker fatal error: {e}")
+            logger.error(f"💥 Worker fatal error: {e}")
         finally:
             self._loop.close()
 
@@ -970,25 +979,25 @@ class OscilloscopeApp:
             timeout period, it's left running as a daemon thread that will be
             terminated when the main process exits.
         """
-        print("🛑 Stopping data collection...")
+        logger.info("🛑 Stopping data collection...")
         self._stop_event.set()
 
         if self._data_thread and self._data_thread.is_alive():
-            print("⏳ Waiting for data collection thread to stop...")
+            logger.info("⏳ Waiting for data collection thread to stop...")
             self._data_thread.join(timeout=5.0)  # Increased timeout
 
             if self._data_thread.is_alive():
-                print("⚠️ Data collection thread did not stop gracefully")
+                logger.warning("⚠️ Data collection thread did not stop gracefully")
             else:
-                print("✅ Data collection thread stopped")
+                logger.info("✅ Data collection thread stopped")
 
         # Close the event loop if it exists
         if self._loop and not self._loop.is_closed():
             try:
                 self._loop.close()
-                print("✅ Event loop closed")
+                logger.info("✅ Event loop closed")
             except Exception as e:
-                print(f"⚠️ Error closing event loop: {e}")
+                logger.warning(f"⚠️ Error closing event loop: {e}")
 
     def run(
         self, host: str = "127.0.0.1", port: int = 8050, debug: bool = False

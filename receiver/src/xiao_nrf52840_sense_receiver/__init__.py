@@ -6,6 +6,8 @@ import sys
 
 from .ble_receiver import run
 
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -101,42 +103,42 @@ def main() -> None:
         from .oscilloscope import create_app
         from .ble_receiver import BleDataSource, MockDataSource
 
-        print("🔧 XIAO nRF52840 Sense - Oscilloscope")
-        print("=" * 50)
-        print("🌐 Starting web interface...")
-        print("📊 BLE connection will take 10-15 seconds to establish")
-        print("⏱️ Please be patient while connecting to device...")
-        print(f"🔍 Open http://localhost:{args.port} in your browser")
-        print("=" * 50)
+        logger.info("🔧 XIAO nRF52840 Sense - Oscilloscope")
+        logger.info("=" * 50)
+        logger.info("🌐 Starting web interface...")
+        logger.info("📊 BLE connection will take 10-15 seconds to establish")
+        logger.info("⏱️ Please be patient while connecting to device...")
+        logger.info(f"🔍 Open http://localhost:{args.port} in your browser")
+        logger.info("=" * 50)
 
         # データソースの選択
         from .ble_receiver import DataSource
 
         data_source: DataSource
         if args.mock:
-            print("🔧 Using mock data for testing (no BLE device required)")
+            logger.info("🔧 Using mock data for testing (no BLE device required)")
             data_source = MockDataSource()
         else:
             # BLE接続を試行、失敗時は明確にエラー終了
             if args.address:
-                print(f"🔍 Connecting to specific BLE address: {args.address}")
+                logger.info(f"🔍 Connecting to specific BLE address: {args.address}")
             else:
-                print("🔍 Attempting to connect to BLE device...")
-                print("💡 Make sure XIAO Sense IMU is powered on and advertising")
+                logger.info("🔍 Attempting to connect to BLE device...")
+                logger.info("💡 Make sure XIAO Sense IMU is powered on and advertising")
 
             try:
                 data_source = BleDataSource(
                     scan_timeout=args.scan_timeout, idle_timeout=args.idle_timeout
                 )
             except Exception as e:
-                print(f"❌ Failed to connect to BLE device: {e}")
-                print("💡 Troubleshooting tips:")
-                print("   - Check if XIAO device is powered on")
-                print("   - Verify device is advertising as 'XIAO Sense IMU'")
-                print("   - Move device closer to reduce interference")
-                print("   - Check Bluetooth is enabled on this computer")
-                print("   - Try restarting the device and try again")
-                print("   - Use --mock option for testing without device")
+                logger.error(f"❌ Failed to connect to BLE device: {e}")
+                logger.info("💡 Troubleshooting tips:")
+                logger.info("   - Check if XIAO device is powered on")
+                logger.info("   - Verify device is advertising as 'XIAO Sense IMU'")
+                logger.info("   - Move device closer to reduce interference")
+                logger.info("   - Check Bluetooth is enabled on this computer")
+                logger.info("   - Try restarting the device and try again")
+                logger.info("   - Use --mock option for testing without device")
                 raise SystemExit(1)
 
         # アプリを作成して起動
@@ -147,14 +149,14 @@ def main() -> None:
             try:
                 app.app.run(debug=False, host="0.0.0.0", port=args.port)
             except KeyboardInterrupt:
-                print("\n🛑 Shutting down oscilloscope...")
+                logger.info("\n🛑 Shutting down oscilloscope...")
             finally:
-                print("🛑 Stopping data collection...")
+                logger.info("🛑 Stopping data collection...")
                 app.stop_data_collection()
-                print("🏁 Oscilloscope stopped")
+                logger.info("🏁 Oscilloscope stopped")
 
         except Exception as e:
-            print(f"❌ Failed to start oscilloscope: {e}")
+            logger.error(f"❌ Failed to start oscilloscope: {e}")
             raise SystemExit(1)
 
     else:

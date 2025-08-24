@@ -1449,7 +1449,7 @@ async def stream_rows(
 
     Example:
         >>> async for row in stream_rows(idle_timeout=30.0):
-        ...     print(f"Accel: {row.ax:.3f}, {row.ay:.3f}, {row.az:.3f}")
+        ...     logger.info(f"Accel: {row.ax:.3f}, {row.ay:.3f}, {row.az:.3f}")
 
     Note:
         This function is designed to be the primary entry point for BLE data collection.
