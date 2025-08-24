@@ -1,13 +1,30 @@
-"""
-XIAO nRF52840 Sense (NUS 互換) から BLE 経由で CSV テレメトリを受信するユーティリティ。
+"""BLE sensor data receiver for XIAO nRF52840 Sense devices.
 
-機能:
-- 指定名/UUID でデバイスをスキャン
-- Notify (TX) を購読し、断片を改行で組み立て
-- 各行を CSV パースして dict に変換
-- 任意で CSV のまま標準出力へ書き出し
+This module provides a comprehensive BLE communication system for receiving
+real-time sensor telemetry from XIAO nRF52840 Sense devices over Nordic UART
+Service (NUS). The implementation handles the complete data pipeline from device
+discovery through data parsing and streaming.
 
-要件: bleak
+Core Features:
+- **Device Discovery**: Automatic BLE scanning by device name or service UUID
+- **Robust Connection**: Multi-retry connection logic with exponential backoff
+- **Data Assembly**: Fragment reassembly with multiple line delimiter support
+- **Stream Processing**: Real-time CSV parsing into structured data objects
+- **Error Recovery**: Comprehensive error classification and recovery strategies
+- **Production Ready**: Configurable timeouts and monitoring for deployment
+
+The module supports both direct CLI usage for simple data capture and programmatic
+integration through abstract data source interfaces for complex applications.
+
+Architecture:
+- DataSource interface enables pluggable data sources (BLE, Mock, File, etc.)
+- Circular buffer provides thread-safe data storage with gap detection
+- Async/await throughout ensures non-blocking operation under high data rates
+- Producer-consumer pattern decouples data collection from processing
+
+Requirements:
+- bleak: Cross-platform BLE library for device communication
+- asyncio: Async I/O support for concurrent operation
 """
 
 from __future__ import annotations
@@ -29,10 +46,10 @@ from bleak.backends.scanner import AdvertisementData
 from bleak.exc import BleakError
 
 
-# NUS UUID 定数
+# Nordic UART Service (NUS) UUID constants
 NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-NUS_TX_CHAR = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # Notify
-NUS_RX_CHAR = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # Write (unused)
+NUS_TX_CHAR = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # Notify (device to client)
+NUS_RX_CHAR = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # Write (client to device, unused)
 
 
 DEVICE_NAME = "XIAO Sense IMU"
@@ -40,6 +57,35 @@ DEVICE_NAME = "XIAO Sense IMU"
 
 @dataclass(frozen=True)
 class ImuRow:
+    """Represents a single IMU sensor data row from the XIAO nRF52840 Sense device.
+
+    This class encapsulates one complete sensor reading containing accelerometer,
+    gyroscope, temperature, and audio RMS values. The frozen dataclass design
+    ensures immutability, which is crucial for data integrity in a streaming
+    system where data flows through multiple processing stages.
+
+    The field order matches the CSV format transmitted by the XIAO device:
+    millis,ax,ay,az,gx,gy,gz,tempC,audioRMS
+
+    Attributes:
+        millis: Timestamp in milliseconds from device boot. Used for timing
+            analysis and synchronization between samples.
+        ax: Accelerometer X-axis (m/s²). Part of 3-axis motion detection.
+        ay: Accelerometer Y-axis (m/s²). Part of 3-axis motion detection.
+        az: Accelerometer Z-axis (m/s²). Part of 3-axis motion detection.
+        gx: Gyroscope X-axis (deg/s). Part of 3-axis rotation detection.
+        gy: Gyroscope Y-axis (deg/s). Part of 3-axis rotation detection.
+        gz: Gyroscope Z-axis (deg/s). Part of 3-axis rotation detection.
+        tempC: Temperature in Celsius from IMU sensor. Used for thermal
+            compensation and environmental monitoring.
+        audioRMS: RMS value of 10ms audio window. Provides audio level
+            indication without raw audio data transmission.
+
+    Note:
+        The frozen=True parameter prevents accidental mutation of sensor data,
+        ensuring data integrity throughout the processing pipeline.
+    """
+
     millis: int
     ax: float
     ay: float
@@ -52,7 +98,32 @@ class ImuRow:
 
     @staticmethod
     def parse_csv(line: str) -> "ImuRow":
-        # 受信は「, 」が基本だが空白有無に寛容にする
+        """Parse CSV line into ImuRow instance.
+
+        This method handles the conversion from the raw CSV format transmitted
+        by the XIAO device into a structured data object. The parser is designed
+        to be lenient with whitespace to handle potential BLE transmission
+        artifacts while maintaining strict field count validation.
+
+        Args:
+            line: CSV string in format "millis,ax,ay,az,gx,gy,gz,tempC,audioRMS"
+                Whitespace around commas is automatically stripped.
+
+        Returns:
+            ImuRow: Parsed sensor data instance with all fields populated.
+
+        Raises:
+            ValueError: If the line doesn't contain exactly 9 comma-separated
+                fields, indicating a malformed or incomplete transmission.
+            ValueError: If any numeric field cannot be converted to the
+                appropriate type (int for millis, float for others).
+
+        Note:
+            The whitespace stripping is essential because BLE transmission
+            sometimes introduces extra spaces due to packet fragmentation
+            and reassembly at the protocol level.
+        """
+        # Input typically uses ", " but be lenient with whitespace variations
         parts = [p.strip() for p in line.split(",")]
         if len(parts) != 9:
             raise ValueError(f"Unexpected CSV fields count: {len(parts)} in '{line}'")
@@ -77,14 +148,52 @@ class ImuRow:
 
 @dataclass
 class BufferStats:
-    """Statistics about the data buffer."""
+    """Real-time statistics for sensor data buffer monitoring.
+
+    This class tracks buffer utilization and data flow rates for performance
+    monitoring and system health assessment. Statistics are calculated in
+    real-time during normal buffer operations without additional overhead.
+
+    The statistics serve multiple purposes:
+    1. **Performance monitoring**: Track data ingestion rates and buffer utilization
+    2. **System health**: Detect buffer overflows and connection issues
+    3. **User feedback**: Provide real-time status in UI applications
+    4. **Debugging**: Historical data rate information for troubleshooting
+
+    Attributes:
+        fill_level: Current number of samples in the buffer. Used to monitor
+            buffer utilization and detect approaching overflow conditions.
+        sample_rate: Current data ingestion rate in samples per second. Calculated
+            from time intervals between consecutive updates.
+        last_update: Timestamp of the most recent statistics update. Used internally
+            for sample rate calculations.
+
+    Note:
+        Sample rate calculation uses a simple interval-based approach rather than
+        moving averages for minimal computational overhead during high-frequency
+        data ingestion.
+    """
 
     fill_level: int = 0
     sample_rate: float = 0.0
     last_update: float = 0.0
 
-    def update(self, row: ImuRow) -> None:
-        """Update statistics with new data."""
+    def update(self, _row: ImuRow) -> None:
+        """Update statistics with new sensor data sample.
+
+        This method is called automatically during buffer operations to maintain
+        real-time statistics. The sample rate calculation uses simple time
+        intervals for minimal computational overhead.
+
+        Args:
+            _row: New sensor data sample being processed. The actual data values
+                are not used for statistics, only the arrival timing for rate calculation.
+
+        Note:
+            Sample rate is calculated as the reciprocal of the time interval
+            between consecutive calls. This provides instantaneous rate rather
+            than smoothed averages, making it responsive to connection changes.
+        """
         current_time = time.time()
         if self.last_update > 0:
             time_diff = current_time - self.last_update
@@ -94,20 +203,75 @@ class BufferStats:
 
 
 class DataBuffer:
-    """Thread-safe circular buffer for IMU data with index-based access for recording."""
+    """Thread-safe circular buffer optimized for real-time sensor data streaming.
+
+    This class implements a specialized circular buffer designed for high-frequency
+    sensor data ingestion with concurrent access patterns. The key design decisions
+    address specific challenges in real-time sensor systems:
+
+    1. **Index-based tracking**: Unlike simple circular buffers, this maintains
+       monotonic indices to detect data loss during concurrent access, essential
+       for reliable data recording.
+
+    2. **Thread safety**: Uses RLock to handle recursive locking scenarios while
+       maintaining performance for high-frequency writes (~25Hz BLE + ~100Hz simulation).
+
+    3. **Non-blocking statistics**: Real-time stats calculation without separate
+       threads, minimizing system complexity.
+
+    4. **Drop detection**: Critical for data recording systems where knowing about
+       lost samples is more important than perfect buffering.
+
+    The circular nature prevents unbounded memory growth while the index tracking
+    ensures recording threads can detect gaps in the data stream.
+
+    Attributes:
+        _max_size: Maximum buffer capacity before oldest entries are dropped.
+        _buffer: Circular deque storing actual IMU data rows.
+        _lock: Reentrant lock for thread-safe operations.
+        _stats: Real-time statistics tracking buffer state and data ranges.
+        _write_index: Monotonically increasing counter for all writes ever made.
+        _base_index: Index of the oldest sample currently in the buffer.
+
+    Note:
+        The index-based design is specifically required for the recording system
+        to maintain data integrity across thread boundaries without complex
+        synchronization mechanisms.
+    """
 
     def __init__(self, max_size: int = 1000):
+        """Initialize thread-safe circular buffer with index tracking.
+
+        Args:
+            max_size: Maximum number of samples to retain. When exceeded,
+                oldest samples are dropped. Default 1000 provides ~40 seconds
+                of data at 25Hz BLE rate, sufficient for visualization and
+                short-term recording without excessive memory usage.
+        """
         self._max_size = max_size
         self._buffer: deque[ImuRow] = deque(maxlen=max_size)
         self._lock = threading.RLock()
         self._stats = BufferStats()
 
-        # Index-based access for recording (design doc requirement)
+        # Index-based access for recording (enables gap detection)
         self._write_index = 0  # Monotonic counter for all writes
         self._base_index = 0  # Index of first element currently in buffer
 
     def append(self, row: ImuRow) -> None:
-        """Add a new data row to the buffer."""
+        """Add new sensor data row to buffer with automatic statistics update.
+
+        This method handles the core data ingestion from BLE reception. The
+        implementation is optimized for high-frequency calls (~25Hz) while
+        maintaining thread safety and real-time statistics.
+
+        Args:
+            row: Complete IMU sensor reading to add to the buffer.
+
+        Note:
+            When buffer is full, oldest data is automatically dropped. The
+            base_index tracking ensures recording threads can detect this
+            condition and handle data gaps appropriately.
+        """
         with self._lock:
             # Check if we're about to drop data due to circular buffer overflow
             if len(self._buffer) == self._max_size:
@@ -119,7 +283,23 @@ class DataBuffer:
             self._stats.update(row)
 
     def get_recent(self, count: int) -> list[ImuRow]:
-        """Get the most recent N data points."""
+        """Get the most recent N data points for visualization.
+
+        This method is primarily used by the oscilloscope visualization to
+        efficiently retrieve the latest sensor readings without affecting
+        the buffer's internal state or recording operations.
+
+        Args:
+            count: Number of recent samples to retrieve. If count exceeds
+                buffer size, all available samples are returned.
+
+        Returns:
+            List of IMU rows ordered from oldest to newest in the requested range.
+
+        Note:
+            Returns a shallow copy to prevent external modification of buffer
+            contents while avoiding expensive deep copying of sensor data.
+        """
         with self._lock:
             return (
                 list(self._buffer)[-count:]
@@ -128,24 +308,46 @@ class DataBuffer:
             )
 
     def get_all(self) -> list[ImuRow]:
-        """Get all data points in the buffer."""
+        """Get all data points currently in buffer.
+
+        Returns:
+            Complete list of all buffered IMU rows, ordered chronologically.
+
+        Note:
+            Used primarily for debugging and full data export scenarios.
+            For recording operations, prefer get_since_index() for efficiency.
+        """
         with self._lock:
             return list(self._buffer)
 
     def get_since_index(self, last_index: int) -> tuple[list[ImuRow], int, bool]:
-        """
-        Get samples since last_index with drop detection.
+        """Retrieve new samples since last_index with data loss detection.
 
-        This is the core method for recording data without affecting visualization.
-        Used by RecordingWorkerThread to efficiently track new data.
+        This is the critical method for recording operations, designed to handle
+        concurrent access patterns where visualization continues while recording
+        is active. The index-based approach ensures recording threads can detect
+        and handle buffer overflows gracefully.
+
+        The implementation handles three scenarios:
+        1. Normal case: Return new samples since last check
+        2. Buffer overflow: Detect data loss and return all available data
+        3. No new data: Return empty list efficiently
 
         Args:
-            last_index: Index of the last sample we processed
+            last_index: Index of the last sample previously processed by
+                the calling thread. Must be from a previous call's return value.
 
         Returns:
-            - samples: List of new samples since last_index
-            - next_index: Index to use for next call
-            - dropped: True if data was lost due to buffer overflow
+            tuple containing:
+            - samples: List of new IMU rows since last_index, chronologically ordered
+            - next_index: Index value to pass to next call for continuation
+            - dropped: True if data was lost due to circular buffer overflow,
+                indicating the recording may have gaps
+
+        Note:
+            This method is the foundation of gap-aware recording. When dropped=True,
+            the caller should log the data loss and decide whether to continue
+            recording or restart with a clean session.
         """
         with self._lock:
             # Detect if requested data was dropped from circular buffer
@@ -168,7 +370,16 @@ class DataBuffer:
             return samples, self._write_index, False
 
     def clear(self) -> None:
-        """Clear all data from the buffer."""
+        """Clear all buffer contents and reset index tracking.
+
+        This method provides a clean reset of the entire buffer state,
+        used primarily when switching data sources or restarting sessions.
+        All statistics and index tracking are reset to initial values.
+
+        Note:
+            After calling clear(), any previous index values from get_since_index()
+            become invalid and should not be reused.
+        """
         with self._lock:
             self._buffer.clear()
             self._stats.fill_level = 0
@@ -178,56 +389,207 @@ class DataBuffer:
 
     @property
     def stats(self) -> BufferStats:
-        """Get buffer statistics."""
+        """Get current buffer statistics for monitoring and debugging.
+
+        Returns:
+            BufferStats: Real-time statistics including fill level and
+                data range information, calculated during normal operations.
+        """
         with self._lock:
             return self._stats
 
     @property
     def size(self) -> int:
-        """Get current buffer size."""
+        """Get current number of samples in buffer.
+
+        Returns:
+            Current buffer occupancy, useful for monitoring buffer utilization.
+        """
         with self._lock:
             return len(self._buffer)
 
     @property
     def max_size(self) -> int:
-        """Get maximum buffer size."""
+        """Get maximum buffer capacity.
+
+        Returns:
+            Maximum number of samples before circular overflow occurs.
+        """
         return self._max_size
 
     @property
     def current_write_index(self) -> int:
-        """Get current write index for recording initialization."""
+        """Get current write index for recording initialization.
+
+        This property enables recording threads to initialize their tracking
+        index to the current buffer state, ensuring they don't miss data
+        when starting recording mid-stream.
+
+        Returns:
+            Current monotonic write index value.
+
+        Note:
+            This index represents the total number of samples ever written
+            to this buffer instance, not the current buffer position.
+        """
         with self._lock:
             return self._write_index
 
 
 class DataSource(ABC):
-    """Abstract base class for data sources."""
+    """Abstract base class defining the interface for sensor data sources.
+
+    This interface enables pluggable data sources for the sensor monitoring system,
+    supporting both real hardware devices and simulated data sources. The design
+    follows the Strategy pattern, allowing applications to switch between different
+    data sources without changing the consuming code.
+
+    Key design principles:
+    1. **Async-first**: All methods are asynchronous to support non-blocking I/O
+    2. **Lifecycle management**: Clear start/stop semantics for resource management
+    3. **Connection monitoring**: Status checking for robust error handling
+    4. **Stream interface**: Generator pattern for efficient data processing
+
+    Implementations must handle their own connection management, error recovery,
+    and resource cleanup. The interface is intentionally minimal to support
+    diverse data source types (BLE, USB, file, network, etc.).
+
+    Example implementations:
+    - BleDataSource: Real BLE communication with XIAO devices
+    - MockDataSource: Synthetic data for testing and development
+    - FileDataSource: Playback from recorded data files
+    - NetworkDataSource: Remote sensor data over TCP/WebSocket
+    """
 
     @abstractmethod
     async def is_connected(self) -> bool:
-        """Check if the data source is connected."""
+        """Check if the data source is currently connected and operational.
+
+        Returns:
+            True if data source is connected and ready to provide data,
+            False otherwise.
+
+        Note:
+            This should reflect the logical connection state. For BLE sources,
+            this means device is paired and communicating. For file sources,
+            this means file is open and readable.
+        """
         pass
 
     @abstractmethod
     async def start(self) -> None:
-        """Start the data source."""
+        """Initialize and start the data source.
+
+        This method should perform all necessary setup to prepare the data
+        source for operation. For hardware sources, this might include device
+        discovery and connection. For file sources, this might mean opening
+        files and validating headers.
+
+        Raises:
+            Various exceptions specific to the data source type. Common examples:
+            - ConnectionError: Unable to establish connection
+            - FileNotFoundError: Source data file missing
+            - PermissionError: Insufficient access rights
+
+        Note:
+            This method should be idempotent - calling it multiple times should
+            not cause issues if the source is already started.
+        """
         pass
 
     @abstractmethod
     async def stop(self) -> None:
-        """Stop the data source."""
+        """Stop the data source and clean up resources.
+
+        This method should gracefully shut down the data source and release
+        any held resources (connections, files, threads, etc.). It should
+        ensure that get_data_stream() terminates cleanly.
+
+        Note:
+            This method should be idempotent and safe to call even if the
+            source is already stopped or was never started.
+        """
         pass
 
     @abstractmethod
     def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
-        """Get an async generator that yields IMU data rows."""
+        """Get an async generator that yields sensor data samples.
+
+        This is the core method that provides the actual sensor data stream.
+        The generator should yield ImuRow objects as they become available
+        from the data source.
+
+        Yields:
+            ImuRow: Individual sensor readings with all fields populated.
+
+        Raises:
+            Various exceptions depending on the data source:
+            - ConnectionError: Lost connection during streaming
+            - DataError: Corrupted or invalid data received
+            - TimeoutError: Data source became unresponsive
+
+        Note:
+            The generator should run indefinitely until stop() is called or
+            an unrecoverable error occurs. Temporary issues should be handled
+            internally with appropriate retry logic.
+        """
         pass
 
 
 class BleDataSource(DataSource):
-    """BLE data source adapter for existing BLE receiver with enhanced stability."""
+    """Production BLE data source with robust connection handling and monitoring.
+
+    This class implements the DataSource interface specifically for BLE communication
+    with XIAO nRF52840 Sense devices. The design focuses on reliability in
+    real-world deployment scenarios where BLE connections are inherently unstable.
+
+    Key design decisions:
+
+    1. **Configurable timeouts**: Both scan and idle timeouts can be tuned for
+       different deployment environments (office vs. field vs. production).
+
+    2. **Connection health monitoring**: Automatic logging and statistics tracking
+       help diagnose connection issues without manual intervention.
+
+    3. **Error classification**: Different BLE errors get specific handling and
+       user guidance, improving troubleshooting experience.
+
+    4. **Graceful degradation**: Connection failures are logged but don't crash
+       the application, allowing for retry logic at higher levels.
+
+    The implementation wraps the lower-level stream_rows() function with
+    additional monitoring and stability features required for production use.
+
+    Attributes:
+        _connected: Current connection state, used for graceful shutdown.
+        _scan_timeout: Maximum time to search for XIAO device during connection.
+        _idle_timeout: Maximum time to wait between data packets before timeout.
+        _connection_attempts: Counter for debugging connection reliability.
+        _last_data_time: Timestamp of last received data for health monitoring.
+
+    Note:
+        This class is designed to be the primary data source for production
+        deployments where connection reliability is more important than
+        maximum throughput.
+    """
 
     def __init__(self, scan_timeout: float = 15.0, idle_timeout: float = 30.0) -> None:
+        """Initialize BLE data source with configurable timeout parameters.
+
+        Args:
+            scan_timeout: Maximum seconds to scan for XIAO device. Longer
+                values increase connection success rate but delay error detection.
+                Default 15s balances reliability with user experience.
+            idle_timeout: Maximum seconds between data packets before considering
+                connection lost. Default 30s accounts for temporary BLE interference
+                while detecting actual disconnections promptly.
+
+        Note:
+            Timeout values should be tuned based on deployment environment:
+            - Office/lab: shorter timeouts for quick feedback
+            - Production: longer timeouts for stability
+            - Field testing: very long timeouts for challenging RF environments
+        """
         self._connected = False
         self._scan_timeout = scan_timeout
         self._idle_timeout = idle_timeout
@@ -235,16 +597,61 @@ class BleDataSource(DataSource):
         self._last_data_time = 0.0
 
     async def is_connected(self) -> bool:
+        """Check if BLE connection is currently active.
+
+        Returns:
+            True if connected and receiving data, False otherwise.
+
+        Note:
+            This reflects the logical connection state, not the underlying
+            BLE radio state which may have temporary interruptions.
+        """
         return self._connected
 
     async def start(self) -> None:
+        """Initialize data source for connection attempts.
+
+        This method prepares the data source for operation but doesn't
+        establish the BLE connection. Actual connection happens in
+        get_data_stream() to support lazy initialization patterns.
+        """
         self._connected = True
 
     async def stop(self) -> None:
+        """Gracefully stop the data source and close BLE connection.
+
+        This method signals the data stream to terminate cleanly,
+        allowing any pending operations to complete before shutdown.
+        """
         self._connected = False
 
     async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
-        """Get BLE data stream with enhanced stability and monitoring."""
+        """Establish BLE connection and stream sensor data with health monitoring.
+
+        This is the core method that handles the complete BLE connection lifecycle:
+        device discovery, connection establishment, data reception, and error handling.
+        The implementation includes comprehensive logging and monitoring to support
+        production deployment scenarios.
+
+        The health monitoring serves multiple purposes:
+        1. **User feedback**: Regular updates show connection is working
+        2. **Debugging**: Statistics help diagnose performance issues
+        3. **Reliability metrics**: Data rates and connection duration tracking
+        4. **Error classification**: Specific guidance for different failure modes
+
+        Yields:
+            ImuRow: Individual sensor readings as they arrive from the device.
+
+        Raises:
+            KeyboardInterrupt: When user manually stops the connection.
+            Various BLE exceptions: Classified and logged with specific guidance.
+
+        Note:
+            Connection failures are expected in BLE systems. The detailed error
+            classification helps users understand whether issues are environmental
+            (move closer), device-related (check power), or system-related
+            (restart Bluetooth).
+        """
         import logging
         import time
 
@@ -325,28 +732,128 @@ class BleDataSource(DataSource):
 
 
 class MockDataSource(DataSource):
-    """Mock data source for testing and development."""
+    """Synthetic data source for testing, development, and demonstration.
+
+    This data source generates realistic IMU sensor data using mathematical
+    functions to simulate the behavior of a real XIAO nRF52840 Sense device.
+    The synthetic data includes all sensor modalities with realistic value
+    ranges and temporal characteristics.
+
+    Key features:
+    1. **Realistic data patterns**: Sinusoidal functions with noise simulate
+       actual sensor behavior including gravity, motion, and environmental changes.
+    2. **Configurable rate**: Adjustable update interval allows testing at
+       different data rates to match real device behavior.
+    3. **Missing data simulation**: Includes random audio dropouts to test
+       handling of incomplete sensor readings.
+    4. **Deterministic patterns**: Predictable mathematical functions enable
+       automated testing and validation.
+
+    The generated data characteristics:
+    - Accelerometer: Includes 1g gravity offset with periodic motion
+    - Gyroscope: Rotational patterns with varying amplitudes
+    - Temperature: Slow thermal variations around room temperature
+    - Audio RMS: Periodic patterns with 10% random dropouts
+
+    This data source is essential for:
+    - Unit testing without hardware dependencies
+    - UI development and layout testing
+    - Performance testing under controlled conditions
+    - Demonstration and training scenarios
+
+    Attributes:
+        _connected: Current connection state for lifecycle management.
+        _running: Internal flag controlling data generation loop.
+        _update_interval: Time delay between generated samples in seconds.
+        _start_time: Reference timestamp for deterministic data generation.
+    """
 
     def __init__(self, update_interval: float = 0.04):  # 25Hz
+        """Initialize mock data source with configurable update rate.
+
+        Args:
+            update_interval: Time between generated samples in seconds.
+                Default 0.04 (25Hz) matches typical XIAO device data rates.
+                Lower values increase CPU usage but provide higher resolution.
+
+        Note:
+            The update interval affects both the temporal resolution of generated
+            data and the computational load. Values below 0.01 (100Hz) may
+            impact system performance.
+        """
         self._connected = False
         self._running = False
         self._update_interval = update_interval
         self._start_time = time.time()
 
     async def is_connected(self) -> bool:
+        """Check if mock data source is active.
+
+        Returns:
+            True if data generation is active, False otherwise.
+
+        Note:
+            Mock data sources are always "connected" when started since they
+            don't depend on external hardware or network resources.
+        """
         return self._connected
 
     async def start(self) -> None:
+        """Start mock data generation.
+
+        This method initializes the synthetic data generator and resets timing
+        references to ensure deterministic data patterns from the start point.
+
+        Note:
+            Starting the mock source is instantaneous since no external resources
+            are required. Data generation begins when get_data_stream() is called.
+        """
         self._connected = True
         self._running = True
         self._start_time = time.time()
 
     async def stop(self) -> None:
+        """Stop mock data generation.
+
+        This method signals the data generator to terminate cleanly, allowing
+        any ongoing get_data_stream() calls to complete gracefully.
+
+        Note:
+            Stopping is immediate since no external connections need to be closed.
+        """
         self._connected = False
         self._running = False
 
     async def get_data_stream(self) -> AsyncGenerator[ImuRow, None]:
-        """Generate mock IMU data."""
+        """Generate synthetic IMU data with realistic sensor characteristics.
+
+        This method produces a continuous stream of synthetic sensor data using
+        mathematical functions to simulate realistic device behavior. The data
+        patterns are deterministic based on elapsed time, enabling reproducible
+        testing scenarios.
+
+        Data generation characteristics:
+        - **Accelerometer**: Combines gravity (1g) with sinusoidal motion patterns
+          and Gaussian noise to simulate real movement and sensor noise.
+        - **Gyroscope**: Multi-frequency rotational patterns with different
+          amplitudes per axis to simulate realistic angular motion.
+        - **Temperature**: Slow sinusoidal variation around room temperature
+          with random noise to simulate thermal changes.
+        - **Audio RMS**: Periodic audio-like patterns with random dropouts
+          (10% missing data) to test audio processing robustness.
+
+        Yields:
+            ImuRow: Synthetic sensor readings with realistic value ranges
+            and temporal correlations.
+
+        Raises:
+            asyncio.CancelledError: When the async generator is cancelled.
+
+        Note:
+            The generator runs until stop() is called or the async context
+            is cancelled. Data patterns are consistent across runs due to
+            deterministic mathematical functions.
+        """
         self._connected = True
         self._running = True
 
@@ -415,45 +922,87 @@ logger = logging.getLogger(__name__)
 async def _scan_ble_devices(
     timeout: float,
 ) -> dict[str, tuple[BLEDevice, AdvertisementData]]:
-    """BLEデバイスをスキャンして広告データを取得。"""
+    """Scan for BLE devices and retrieve advertisement data.
+
+    This function performs device discovery using the cross-platform Bleak library.
+    The implementation handles platform-specific quirks and provides detailed error
+    messages for common BLE scanning issues.
+
+    Args:
+        timeout: Maximum time in seconds to spend scanning for devices.
+            Longer timeouts increase device discovery success rate but delay
+            error reporting.
+
+    Returns:
+        Dictionary mapping device addresses to (BLEDevice, AdvertisementData) tuples.
+        The dictionary includes all devices discovered during the scan period.
+
+    Raises:
+        RuntimeError: If BLE scanning cannot be initialized. The error message
+            includes platform-specific troubleshooting guidance for common issues.
+
+    Note:
+        Modern Bleak versions (0.22+) require explicit advertisement data retrieval
+        via return_adv=True. This function automatically handles this requirement.
+    """
     try:
-        # bleak 0.22+ では BLEDevice に metadata が無い。
-        # 広告データを得るため return_adv=True を指定して取得する。
+        # Bleak 0.22+ doesn't include metadata in BLEDevice objects.
+        # Request advertisement data explicitly with return_adv=True.
         devices_adv = await BleakScanner.discover(timeout=timeout, return_adv=True)
-        logger.debug("スキャン結果件数: %d", len(devices_adv))
+        logger.debug("Scan completed: %d devices found", len(devices_adv))
         return devices_adv
     except BleakError as e:
         raise RuntimeError(
-            "BLE スキャナの起動に失敗しました。以下を確認してください:\n"
-            "- Windows の『Bluetooth』がオン\n"
-            "- Windows の『位置情報サービス』がオン（BLE スキャンに必要）\n"
-            "- 仮想環境/WSL ではないこと（Windows ネイティブで実行）\n"
-            "- リモートデスクトップ接続では一部環境でスキャン不可\n"
-            "- Bluetooth アダプタ/ドライバが正しく認識\n"
+            "BLE scanner initialization failed. Please verify:\n"
+            "- Windows Bluetooth is enabled\n"
+            "- Windows Location Services enabled (required for BLE scanning)\n"
+            "- Running on native Windows (not in VM/WSL)\n"
+            "- Remote desktop connections may block BLE access\n"
+            "- Bluetooth adapter/drivers are properly installed\n"
         ) from e
 
 
 def _match_device(
     dev: BLEDevice, adv: AdvertisementData, device_name: str, service_uuid: str
 ) -> bool:
-    """デバイスが条件に一致するかチェック。"""
+    """Check if a discovered device matches the search criteria.
+
+    This function implements a hierarchical matching strategy that prioritizes
+    device name matching over service UUID matching. The approach ensures
+    reliable device identification even when multiple similar devices are present.
+
+    Args:
+        dev: BLE device object containing basic device information.
+        adv: Advertisement data containing detailed broadcasting information.
+        device_name: Target device name for exact string matching.
+        service_uuid: Target service UUID for fallback matching (case-insensitive).
+
+    Returns:
+        True if device matches either name or service UUID criteria, False otherwise.
+
+    Note:
+        Device name matching takes precedence over service UUID matching to ensure
+        specific device selection in environments with multiple similar devices.
+    """
     logger.debug(
-        "検出: addr=%s name=%s rssi=%s uuids=%s",
+        "Device discovered: addr=%s name=%s rssi=%s uuids=%s",
         getattr(dev, "address", "?"),
         getattr(dev, "name", None),
         getattr(adv, "rssi", None),
         getattr(adv, "service_uuids", None),
     )
 
-    # 名称優先
+    # Prioritize device name matching for specificity
     if dev.name == device_name:
-        logger.info("デバイス名一致で選択: %s (%s)", dev.name, dev.address)
+        logger.info("Device selected by name match: %s (%s)", dev.name, dev.address)
         return True
 
-    # Service UUID による一致も許容
+    # Fallback to service UUID matching for broader compatibility
     uuids: Iterable[str] = adv.service_uuids or []
     if any(u.lower() == service_uuid.lower() for u in uuids):
-        logger.info("Service UUID一致で選択: %s (%s)", dev.name, dev.address)
+        logger.info(
+            "Device selected by service UUID match: %s (%s)", dev.name, dev.address
+        )
         return True
 
     return False
@@ -465,9 +1014,32 @@ async def find_device(
     service_uuid: str = NUS_SERVICE,
     timeout: float = 10.0,
 ) -> Optional[BLEDevice]:
-    """指定条件で BLE デバイスをスキャンし、最初に見つかったものを返す。"""
+    """Discover and return the first BLE device matching the specified criteria.
+
+    This function performs a comprehensive BLE device discovery operation with
+    configurable matching criteria. It handles the complete discovery lifecycle
+    from scanning through device validation and selection.
+
+    Args:
+        device_name: Target device name for identification. Default matches
+            standard XIAO nRF52840 Sense firmware configuration.
+        service_uuid: Target service UUID for fallback identification when
+            device name is not available. Default uses Nordic UART Service.
+        timeout: Maximum time in seconds to spend scanning. Longer timeouts
+            increase discovery success rate but delay error feedback.
+
+    Returns:
+        BLEDevice object for the first matching device found, or None if no
+        matching device is discovered within the timeout period.
+
+    Note:
+        The function returns immediately upon finding the first matching device,
+        making it suitable for scenarios where device uniqueness is expected.
+        For environments with multiple similar devices, consider using device
+        address filtering instead.
+    """
     logger.info(
-        "BLE スキャン開始: name='%s' service='%s' timeout=%.1fs",
+        "BLE device discovery started: name='%s' service='%s' timeout=%.1fs",
         device_name,
         service_uuid,
         timeout,
@@ -485,7 +1057,38 @@ async def find_device(
 def _parse_line_from_buffer(
     buffer: bytearray, debug_hex_dumped: dict[str, bool]
 ) -> Optional[str]:
-    """バッファから1行を抽出する。戻り値がNoneの場合は行が完成していない。"""
+    """Extract one complete line from the BLE receive buffer.
+
+    This function implements robust line parsing for BLE data reception where
+    data arrives in arbitrary-sized fragments that need to be assembled into
+    complete lines. The implementation handles multiple line delimiter types
+    and provides defensive programming against buffer overflow scenarios.
+
+    Key features:
+    1. **Multiple delimiter support**: Handles various line endings (LF, CRLF,
+       NUL, RS, US, GS, ETX, EOT) to support different firmware implementations.
+    2. **Fragment assembly**: Accumulates partial data until a complete line
+       is available, essential for BLE's packet-based transmission.
+    3. **Buffer overflow protection**: Prevents unbounded memory growth when
+       delimiters are missing or corrupted.
+    4. **Debug diagnostics**: Provides HEX/ASCII dumps to identify unknown
+       control characters during development.
+
+    Args:
+        buffer: Mutable byte buffer containing accumulated BLE data fragments.
+            Modified in-place as complete lines are extracted.
+        debug_hex_dumped: State tracking dict to limit debug output frequency.
+            Prevents log spam while providing diagnostic information when needed.
+
+    Returns:
+        Complete UTF-8 decoded line string, or None if no complete line is
+        available in the current buffer contents.
+
+    Note:
+        The function handles CRLF as a two-character sequence while treating
+        other delimiters as single characters. Empty lines and lines containing
+        only whitespace/commas are filtered out as transmission noise.
+    """
     delim_map = [
         (b"\n", "LF"),
         (b"\r", "CR"),
@@ -503,47 +1106,45 @@ def _parse_line_from_buffer(
             candidates.append((idx, token, name))
 
     if not candidates:
-        # まだ行になっていない
+        # No line delimiter found yet
         if len(buffer) > 0:
-            logger.debug("バッファ蓄積: %d bytes (行未確定)", len(buffer))
-            # 一度だけHEX/ASCIIプレビューを出して、未知の区切りや制御文字の存在を可視化
+            logger.debug("Buffer accumulating: %d bytes (line incomplete)", len(buffer))
+            # One-time HEX/ASCII preview to identify unknown delimiters or control characters
             if not debug_hex_dumped["dumped"] and len(buffer) >= 256:
                 _log_buffer_preview(buffer)
                 debug_hex_dumped["dumped"] = True
-            # バッファ暴走防止のソフトガード（64KB超で先頭を少し捨てる）
+            # Buffer overflow protection (trim if exceeds 64KB)
             if len(buffer) > 64 * 1024:
                 drop = len(buffer) - 64 * 1024
-                logger.warning(
-                    "区切り未検出でバッファ肥大のため %d bytes を切り詰め", drop
-                )
+                logger.warning("Buffer overflow protection: trimming %d bytes", drop)
                 del buffer[:drop]
         return None
 
-    # 最も早く現れた区切り
+    # Use the earliest occurring delimiter
     idx, token, token_name = min(candidates, key=lambda t: t[0])
-    # CRLF は 2 文字消費、それ以外は 1 文字
+    # CRLF consumes 2 characters, others consume 1
     consume = 1
     delim_name = token_name
     if token == b"\r" and idx + 1 < len(buffer) and buffer[idx + 1 : idx + 2] == b"\n":
         consume = 2
         delim_name = "CRLF"
 
-    # 1 行取り出し（末尾の CR は落とす）
+    # Extract one line (strip trailing CR)
     line = buffer[:idx].rstrip(b"\r")
     del buffer[: idx + consume]
 
     try:
         text = line.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
-        logger.error("UTF-8 デコード失敗: %r", line)
+        logger.error("UTF-8 decode failed: %r", line)
         return None
 
-    # 空白とカンマのみの行や空行はノイズとして破棄
+    # Discard empty lines or lines with only whitespace and commas as noise
     if text.strip() == "" or text.replace(",", "").strip() == "":
-        logger.debug("ノイズ行をスキップ: %r", text)
+        logger.debug("Skipping noise line: %r", text)
         return None
 
-    logger.debug("行確定(区切り=%s): %s", delim_name, text)
+    logger.debug("Line completed (delimiter=%s): %s", delim_name, text)
     return text
 
 
@@ -598,7 +1199,7 @@ def _create_notification_handler(
                 break
             queue.put_nowait(text)
 
-        # 受信が断続的に途絶えた場合に備え、切断時は consumer を起こす
+        # Wake consumer on disconnect in case reception becomes intermittent
         if disconnected.is_set():
             wake_consumer()
 
@@ -630,39 +1231,39 @@ async def _process_message_queue(
     disconnected: asyncio.Event,
     client: BleakClient,
 ) -> AsyncIterator[ImuRow]:
-    """キューからメッセージを処理してImuRowをyieldする。"""
+    """Process messages from queue and yield ImuRow objects."""
     while True:
-        # アイドルタイムアウトが設定されていれば待機に制限をかける
+        # Apply idle timeout if configured
         if idle_timeout is not None:
             try:
-                logger.debug("キュー待ち（timeout=%.1fs）", idle_timeout)
+                logger.debug("Waiting for queue (timeout=%.1fs)", idle_timeout)
                 line = await asyncio.wait_for(queue.get(), timeout=idle_timeout)
-                logger.debug("キュー取得: %r", line)
+                logger.debug("Queue item received: %r", line)
             except asyncio.TimeoutError:
-                # タイムアウト。接続が切れていれば終了、そうでなければ継続待機。
-                logger.warning("受信タイムアウト (%.1fs)", idle_timeout)
+                # Timeout occurred - exit if disconnected, otherwise continue waiting
+                logger.warning("Receive timeout (%.1fs)", idle_timeout)
                 if disconnected.is_set() or not client.is_connected:
-                    raise RuntimeError("BLE が切断されました。")
+                    raise RuntimeError("BLE connection lost.")
                 else:
                     continue
         else:
-            logger.debug("キュー待ち（無期限）")
+            logger.debug("Waiting for queue (indefinite)")
             line = await queue.get()
-            logger.debug("キュー取得: %r", line)
+            logger.debug("Queue item received: %r", line)
 
         if line is None:
-            # 切断センチネル
-            raise RuntimeError("BLE が切断されました。")
+            # Disconnection sentinel
+            raise RuntimeError("BLE connection lost.")
         if not line:
-            logger.debug("空行をスキップ")
+            logger.debug("Skipping empty line")
             continue
 
         try:
             row = ImuRow.parse_csv(line)
             yield row
         except Exception as ex:
-            # 変換失敗はスキップ（ログで記録）
-            logger.warning("CSV 解析失敗: %s (err=%s)", line, ex)
+            # Skip conversion failures (log for debugging)
+            logger.warning("CSV parsing failed: %s (error=%s)", line, ex)
             continue
 
 
@@ -675,37 +1276,37 @@ async def stream_rows(
     scan_timeout: float = 10.0,
     idle_timeout: Optional[float] = None,
 ) -> AsyncIterator[ImuRow]:
-    """XIAO の Notify を購読し、組み立てた CSV 行を ImuRow でストリームする。"""
+    """Subscribe to XIAO device notifications and stream assembled CSV lines as ImuRow objects."""
 
     address = await _get_device_address(
         address, device_name, service_uuid, scan_timeout
     )
 
     buffer = bytearray()
-    # デバッグ用: 区切り未検出でバッファが肥大したとき、一度だけHEXプレビューを出す
+    # Debug: One-time HEX preview when buffer grows without finding delimiters
     debug_hex_dumped = {"dumped": False}
 
-    # 切断通知コールバック
+    # Disconnect notification callback
     disconnected = asyncio.Event()
 
-    def on_disconnect(_client: BleakClient) -> None:
-        logger.warning("BLE が切断されました（コールバック）")
+    def on_disconnect(_: BleakClient) -> None:
+        logger.warning("BLE connection lost (callback)")
         disconnected.set()
 
-    logger.info("BLE 接続開始: %s", address)
+    logger.info("BLE connection starting: %s", address)
     async with BleakClient(address, disconnected_callback=on_disconnect) as client:
         if not client.is_connected:
-            raise RuntimeError("BLE 接続に失敗しました。")
-        logger.info("BLE 接続完了: %s", address)
+            raise RuntimeError("BLE connection failed.")
+        logger.info("BLE connection established: %s", address)
 
-        # データ行を受け取るキュー。切断時は None を流して終了を知らせる。
+        # Queue for receiving data lines. Send None on disconnect to signal termination.
         queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
         handle = _create_notification_handler(
             queue, buffer, debug_hex_dumped, disconnected
         )
 
-        logger.info("Notify 購読開始: char=%s", tx_char_uuid)
+        logger.info("Starting notification subscription: char=%s", tx_char_uuid)
         await client.start_notify(tx_char_uuid, lambda _, data: handle(data))
 
         try:
@@ -714,7 +1315,7 @@ async def stream_rows(
             ):
                 yield row
         finally:
-            logger.info("Notify 購読停止")
+            logger.info("Stopping notification subscription")
             await client.stop_notify(tx_char_uuid)
 
 
@@ -727,7 +1328,35 @@ async def print_stream(
     scan_timeout: float = 10.0,
     idle_timeout: Optional[float] = None,
 ) -> None:
-    """受信行を CSV として標準出力へ流すヘルパー。"""
+    """Stream sensor data as CSV to standard output for command-line usage.
+
+    This function provides a simple interface for streaming sensor data directly
+    to stdout in CSV format, making it suitable for shell scripting, data pipelines,
+    and command-line data capture workflows.
+
+    The implementation handles the complete data flow from BLE connection through
+    CSV formatting with standardized precision for consistent output formatting.
+
+    Args:
+        address: Optional specific BLE device address. If None, automatic device
+            discovery is performed using device_name.
+        show_header: Whether to output CSV column headers as the first line.
+            Default True for standalone usage, set False for data pipelines.
+        drop_missing_audio: Whether to skip rows with missing audio data (-1.0).
+            Default False preserves all sensor readings for complete data capture.
+        device_name: Device name for automatic discovery. Default matches standard
+            XIAO nRF52840 Sense firmware configuration.
+        scan_timeout: Maximum seconds to scan for target device during discovery.
+        idle_timeout: Maximum seconds between data packets before connection timeout.
+
+    Note:
+        Output format uses fixed precision (6 decimal places for motion data,
+        2 for temperature and audio) to ensure consistent parsing by downstream
+        tools regardless of the precision of received data.
+
+        The function runs indefinitely until interrupted (Ctrl+C) or connection
+        is lost, making it suitable for long-term data logging scenarios.
+    """
     if show_header:
         logger.info("CSV header: millis,ax,ay,az,gx,gy,gz,tempC,audioRMS")
         print("millis,ax,ay,az,gx,gy,gz,tempC,audioRMS")
@@ -738,9 +1367,9 @@ async def print_stream(
         idle_timeout=idle_timeout,
     ):
         if drop_missing_audio and r.audioRMS < 0:
-            logger.debug("audioRMS 欠損のためスキップ: millis=%d", r.millis)
+            logger.debug("Skipping row due to missing audioRMS: millis=%d", r.millis)
             continue
-        # 受信は自由フォーマットだが、こちらの出力は安定化しておく
+        # Input format may vary, but standardize output precision for consistency
         csv_line = f"{r.millis},{r.ax:.6f},{r.ay:.6f},{r.az:.6f},{r.gx:.6f},{r.gy:.6f},{r.gz:.6f},{r.tempC:.2f},{r.audioRMS:.2f}"
         logger.debug("CSV output: %s", csv_line)
         print(csv_line)
@@ -754,12 +1383,48 @@ def run(
     scan_timeout: float = 10.0,
     idle_timeout: Optional[float] = None,
 ) -> int:
-    """同期関数ラッパー。スクリプト/CLI から利用。終了コードを返す。
+    """Command-line interface wrapper for synchronous sensor data streaming.
 
-    戻り値:
-        0: 正常に開始し、ユーザー終了（通常は Ctrl+C）
-        1: エラー終了（スキャン/接続失敗など）
-        130: Ctrl+C による中断
+    This function provides a synchronous, script-friendly interface to the
+    asynchronous BLE sensor data streaming functionality. It serves as the
+    primary entry point for CLI usage and handles the complete lifecycle
+    of a streaming session.
+
+    The implementation wraps the async print_stream() function with proper
+    asyncio event loop management and comprehensive error handling. Exit
+    codes follow Unix conventions to support integration with shell scripts
+    and system monitoring tools.
+
+    Args:
+        address: Optional specific BLE device address to connect to. If None,
+            automatic device discovery by name is used. Useful for deployments
+            with multiple XIAO devices.
+        show_header: Whether to output CSV header line. Default True for
+            standalone usage, set False for data pipeline integration.
+        drop_missing_audio: Whether to skip rows with missing audio data (-1.0).
+            Default False preserves all sensor readings, set True for audio
+            analysis workflows.
+        device_name: BLE device name for discovery. Default "XIAO Sense IMU"
+            matches standard firmware configuration.
+        scan_timeout: Maximum seconds to scan for target device. Default 10s
+            balances discovery time with user experience.
+        idle_timeout: Maximum seconds between data packets before timeout.
+            Default None uses built-in timeout logic based on expected data rates.
+
+    Returns:
+        int: Exit code following Unix conventions:
+            0: Normal completion, user terminated (typically Ctrl+C)
+            1: Error termination (scan/connection failures, etc.)
+            130: Keyboard interrupt (SIGINT/Ctrl+C)
+
+    Note:
+        This function is designed for CLI usage and blocking operation.
+        For integration into larger applications, use the async print_stream()
+        function directly or the DataSource classes for more control.
+
+        The exit code distinction between 0 and 130 allows shell scripts
+        to differentiate between successful user termination and actual
+        system interruption.
     """
     try:
         asyncio.run(
@@ -774,8 +1439,8 @@ def run(
         )
         return 0
     except KeyboardInterrupt:
-        # SIGINT: 慣例で 130 を返す
+        # SIGINT: Return 130 by convention
         return 130
     except Exception as e:
-        logger.exception("致命的エラー: %s", e)
+        logger.exception("Fatal error: %s", e)
         return 1

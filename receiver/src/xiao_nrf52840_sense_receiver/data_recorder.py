@@ -294,13 +294,63 @@ class RecordingWorkerThread(threading.Thread):
 
 
 class RecorderManager:
-    """Central coordinator for recording operations.
+    """Central coordinator for sensor data recording with concurrent safety guarantees.
 
-    Manages recording sessions and provides simple start/stop interface.
-    Ensures data collection is never blocked by recording operations.
+    This class implements a producer-consumer pattern where sensor data collection
+    (producer) is completely decoupled from disk I/O (consumer) to ensure that
+    high-frequency sensor data streams are never blocked by file operations.
+
+    Key design principles:
+
+    1. **Non-blocking data collection**: The main data stream continues uninterrupted
+       regardless of recording state or disk performance issues.
+
+    2. **Background processing**: All file I/O happens in a separate worker thread
+       to avoid blocking the real-time data flow.
+
+    3. **Robust error handling**: Recording failures don't affect data collection,
+       and partial recordings are properly cleaned up.
+
+    4. **Session management**: Each recording session gets unique identifiers,
+       timestamps, and metadata for later analysis.
+
+    5. **Thread safety**: All operations are protected with reentrant locks to
+       handle concurrent access from UI threads, data threads, and worker threads.
+
+    The implementation uses a DataBuffer as the communication channel between
+    the data producer and recording consumer, with index-based tracking to
+    detect any data loss during recording.
+
+    Attributes:
+        _buffer: Shared circular buffer containing live sensor data.
+        _output_dir: Base directory for storing recording files and metadata.
+        _worker_thread: Background thread handling actual file I/O operations.
+        _file_writer: File writer instance managing current recording session.
+        _is_recording: Current recording state flag.
+        _current_session: Unique identifier for active recording session.
+        _start_time: Recording start timestamp for duration calculations.
+        _lock: Reentrant lock protecting concurrent access to internal state.
+
+    Note:
+        The directory structure organizes recordings by date (YYYY-MM-DD) to
+        facilitate long-term data management and prevent excessive files in
+        single directories.
     """
 
     def __init__(self, buffer: DataBuffer, output_dir: Path):
+        """Initialize recording manager with shared data buffer and output location.
+
+        Args:
+            buffer: DataBuffer instance containing live sensor data. This buffer
+                serves as the communication channel between data collection and
+                recording operations.
+            output_dir: Base path for recording storage. Directory structure will
+                be created automatically with date-based organization.
+
+        Note:
+            The output directory is created immediately to catch permission
+            issues early, before any recording attempts.
+        """
         self._buffer = buffer
         self._output_dir = output_dir
         self._worker_thread: Optional[RecordingWorkerThread] = None
@@ -316,7 +366,39 @@ class RecorderManager:
     def start_recording(
         self, prefix: Optional[str] = None, duration: Optional[float] = None
     ) -> RecordingStatus:
-        """Start a new recording session."""
+        """Start new recording session with automatic file naming and worker setup.
+
+        This method initiates a complete recording pipeline: file creation,
+        metadata setup, and background worker thread startup. The operation
+        is atomic - either everything succeeds or everything is cleaned up.
+
+        The file naming convention includes timestamps to ensure uniqueness:
+        - With prefix: "{prefix}_YYYYMMDD_HHMMSS.csv"
+        - Default: "sensor_data_YYYYMMDD_HHMMSS.csv"
+
+        Files are organized in date-based directories (YYYY-MM-DD) to
+        facilitate long-term data management.
+
+        Args:
+            prefix: Optional prefix for the recording filename. Useful for
+                categorizing recordings by experiment or session type.
+            duration: Reserved for future implementation of time-limited
+                recordings. Currently not implemented.
+
+        Returns:
+            RecordingStatus: Current recording state including session info,
+                file path, and initial statistics.
+
+        Raises:
+            RuntimeError: If a recording is already in progress.
+            Various exceptions: File creation, permission, or worker thread
+                startup failures are propagated after cleanup.
+
+        Note:
+            The worker thread starts immediately but may take a moment to
+            begin writing data. Initial status will show 0 samples until
+            the first data is processed.
+        """
         with self._lock:
             if self._is_recording:
                 raise RuntimeError("Recording already in progress")
@@ -361,7 +443,31 @@ class RecorderManager:
                 raise
 
     def stop_recording(self) -> SessionInfo:
-        """Stop current recording session."""
+        """Stop current recording session and finalize all files.
+
+        This method performs a complete shutdown of the recording pipeline:
+        worker thread termination, file closure, metadata writing, and
+        resource cleanup. The operation ensures data integrity even if
+        errors occur during shutdown.
+
+        The worker thread is given time to process any remaining buffered
+        data before being terminated. File writers automatically generate
+        metadata files containing session statistics for later analysis.
+
+        Returns:
+            SessionInfo: Complete information about the finished recording
+                session including final sample count, file size, and duration.
+
+        Raises:
+            RuntimeError: If no recording is currently in progress.
+            Various exceptions: Worker thread or file writer errors are
+                logged but don't prevent session finalization.
+
+        Note:
+            Even if errors occur during stop, the recording state is reset
+            to prevent inconsistent states. Partial recordings are preserved
+            with whatever data was successfully written.
+        """
         with self._lock:
             if not self._is_recording:
                 raise RuntimeError("No recording in progress")
@@ -400,7 +506,20 @@ class RecorderManager:
                 raise
 
     def _cleanup_failed_recording(self) -> None:
-        """Cleanup resources after failed recording."""
+        """Emergency cleanup for failed recording operations.
+
+        This method handles resource cleanup when recording operations fail,
+        ensuring no resources are leaked and the manager returns to a
+        consistent state. All cleanup operations are wrapped in exception
+        handlers to prevent cascading failures.
+
+        Called automatically by start_recording() and stop_recording() when
+        errors occur, and can be called manually if needed for recovery.
+
+        Note:
+            This method never raises exceptions - all errors during cleanup
+            are silently ignored to prevent masking the original failure.
+        """
         try:
             if self._worker_thread:
                 self._worker_thread.stop()
@@ -419,7 +538,28 @@ class RecorderManager:
             self._file_writer = None
 
     def get_status(self) -> RecordingStatus:
-        """Get current recording status."""
+        """Get real-time recording status with current statistics.
+
+        This method provides comprehensive status information for monitoring
+        recording health and progress. Statistics are calculated in real-time
+        from the current worker thread and file writer state.
+
+        For inactive recordings, returns a status object with all fields
+        set to appropriate default values (False, None, 0, etc.).
+
+        Returns:
+            RecordingStatus: Current recording state including:
+                - Recording active flag
+                - Session identifier and start time
+                - Duration in seconds since start
+                - Number of samples successfully written
+                - Output file path and current size
+
+        Note:
+            File size and sample count reflect data actually written to disk,
+            not data waiting in buffers. There may be a small lag between
+            data collection and these statistics.
+        """
         with self._lock:
             if not self._is_recording:
                 return RecordingStatus(
@@ -457,12 +597,43 @@ class RecorderManager:
 
     @property
     def is_recording(self) -> bool:
-        """Check if currently recording."""
+        """Check if recording is currently active.
+
+        Returns:
+            True if a recording session is active, False otherwise.
+
+        Note:
+            This is a thread-safe property that can be checked from any thread
+            without affecting recording operations.
+        """
         with self._lock:
             return self._is_recording
 
     def list_recordings(self, limit: int = 50) -> List[SessionInfo]:
-        """List recent recording sessions."""
+        """List recent recording sessions from metadata files.
+
+        This method scans the output directory for metadata files (*.meta.json)
+        and reconstructs session information for completed recordings. The
+        search is recursive, covering all date-based subdirectories.
+
+        Sessions are sorted by start time with newest recordings first,
+        making it easy to find recent work.
+
+        Args:
+            limit: Maximum number of sessions to return. Default 50 provides
+                good performance while covering typical usage patterns.
+
+        Returns:
+            List of SessionInfo objects for found recordings, sorted newest first.
+
+        Note:
+            Only successfully completed recordings have metadata files. Active
+            or failed recordings won't appear in this list until they complete
+            normally.
+
+            Corrupted metadata files are logged as warnings but don't prevent
+            listing other valid recordings.
+        """
         recordings = []
 
         try:

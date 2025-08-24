@@ -313,13 +313,57 @@ def create_multi_plot_layout(
     visible_plots: List[str] = ["accel", "gyro", "temp", "audio"],
     auto_scale: bool = False,
 ) -> go.Figure:
-    """Create a 2x2 subplot layout with all sensor data.
+    """Create comprehensive 2x2 sensor data visualization with intelligent scaling.
+
+    This function generates a multi-panel dashboard layout optimized for real-time
+    sensor monitoring. The design balances information density with readability,
+    providing immediate visual feedback on all sensor channels simultaneously.
+
+    Key design decisions:
+
+    1. **Fixed 2x2 layout**: Provides consistent visual organization regardless
+       of which sensors are enabled, making it easy to locate specific data types.
+
+    2. **Time-windowed display**: Limits data volume for performance while showing
+       sufficient history for trend analysis. Default 20 seconds provides good
+       context without overwhelming detail.
+
+    3. **Intelligent Y-axis scaling**: Combines fixed ranges for consistency with
+       auto-scaling for detailed analysis. Fixed ranges help users quickly assess
+       relative magnitude across time.
+
+    4. **Color coding**: Uses consistent colors across all plots to help users
+       quickly identify X/Y/Z axes even when switching between different views.
+
+    5. **Missing data handling**: Audio RMS filtering (-1.0 values) prevents
+       invalid readings from skewing visualizations or creating misleading trends.
 
     Args:
-        data: List of IMU data rows
-        time_window_seconds: Time window to display in seconds
-        visible_plots: List of plots to show ("accel", "gyro", "temp", "audio")
-        auto_scale: Whether to auto-scale Y-axis ranges
+        data: List of IMU sensor readings ordered chronologically. Empty list
+            results in "No data" placeholders in all subplots.
+        time_window_seconds: Duration of data to display. 0 means show all data.
+            Default 20s provides ~500 samples at 25Hz, good for trend analysis.
+        visible_plots: List of sensor types to display. Valid options:
+            ["accel", "gyro", "temp", "audio"]. Hidden plots are made invisible
+            but layout positions remain consistent.
+        auto_scale: If True, Y-axes scale to data range with padding. If False,
+            uses fixed ranges optimized for typical sensor behavior.
+
+    Returns:
+        go.Figure: Plotly figure with 2x2 subplot layout:
+            - Top-left: Accelerometer (X/Y/Z in g)
+            - Top-right: Gyroscope (X/Y/Z in °/s)
+            - Bottom-left: Temperature (°C)
+            - Bottom-right: Audio RMS level
+
+    Note:
+        The function handles edge cases gracefully:
+        - Empty data: Shows "No data" message in all subplots
+        - Missing audio: Filters out -1.0 values to prevent visualization artifacts
+        - Time synchronization: All plots use relative timestamps from first sample
+
+        Performance is optimized for real-time updates with large datasets by
+        limiting sample count based on time window and expected data rates.
     """
     # Filter data based on time window
     if data and time_window_seconds > 0:

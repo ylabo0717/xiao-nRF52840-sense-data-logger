@@ -14,11 +14,75 @@ from .plots import create_multi_plot_layout
 
 
 class OscilloscopeApp:
-    """Main Dash application for oscilloscope visualization."""
+    """Real-time sensor data visualization application with comprehensive control interface.
+
+    This class implements a complete web-based oscilloscope for XIAO nRF52840 Sense
+    sensor data, providing real-time visualization, data recording, and interactive
+    controls. The design prioritizes user experience and system reliability in
+    challenging deployment scenarios.
+
+    Architecture highlights:
+
+    1. **Asynchronous data collection**: Background thread with asyncio event loop
+       handles all BLE communication without blocking the web interface. This
+       ensures responsive UI even during connection issues.
+
+    2. **Producer-consumer decoupling**: Data collection (producer) and visualization
+       (consumer) are completely independent. Visualization continues even if
+       data source encounters issues.
+
+    3. **Robust error handling**: Multiple retry mechanisms with exponential backoff
+       handle the inherent instability of BLE connections. Connection failures
+       don't crash the application.
+
+    4. **Interactive data control**: Users can start/pause data collection independently
+       of device connection, allowing selective data capture for experiments.
+
+    5. **Integrated recording**: Built-in data recording with session management
+       enables seamless data capture alongside visualization.
+
+    6. **Responsive web interface**: Dash-based UI updates in real-time (15fps default)
+       with configurable refresh rates and visualization parameters.
+
+    The implementation handles the complex lifecycle of BLE connections while
+    providing a stable, user-friendly interface for sensor data analysis.
+
+    Attributes:
+        data_source: Abstract data source (BLE or Mock) providing sensor readings.
+        buffer: Thread-safe circular buffer storing live sensor data for visualization.
+        update_interval: UI refresh interval in milliseconds (derived from FPS).
+        recorder: Integrated recording manager for session-based data capture.
+        app: Dash web application instance with complete UI layout.
+        _data_thread: Background thread handling asynchronous data collection.
+        _stop_event: Threading event for coordinated shutdown of background operations.
+        _loop: Asyncio event loop dedicated to the data collection thread.
+        _collection_paused: User-controlled pause state for selective data capture.
+        _collection_running: Overall data collection state tracking.
+
+    Note:
+        The class is designed to be instantiated once per application session.
+        Multiple instances may conflict due to shared BLE resources and port usage.
+    """
 
     def __init__(
         self, data_source: DataSource, buffer_size: int = 1000, update_rate: int = 15
     ):
+        """Initialize oscilloscope application with data source and performance parameters.
+
+        Args:
+            data_source: Data source implementation (BleDataSource for real devices,
+                MockDataSource for testing). Must implement the DataSource interface.
+            buffer_size: Maximum samples to retain in memory. Default 1000 provides
+                ~40 seconds at 25Hz, balancing memory usage with visualization history.
+                Larger values increase memory usage but provide longer time windows.
+            update_rate: UI refresh rate in frames per second. Default 15fps balances
+                responsiveness with CPU usage. Higher values increase system load.
+
+        Note:
+            Buffer size affects both memory usage and maximum displayable time window.
+            Update rate impacts system performance - use lower values on resource-
+            constrained systems.
+        """
         self.data_source = data_source
         self.buffer = DataBuffer(max_size=buffer_size)
         self.update_interval = 1000 // update_rate  # Convert FPS to milliseconds
@@ -45,7 +109,26 @@ class OscilloscopeApp:
         self._setup_callbacks()
 
     def _setup_layout(self) -> None:
-        """Setup the Dash application layout."""
+        """Setup the comprehensive web interface layout with all control panels.
+
+        Creates a sophisticated dashboard layout optimized for real-time sensor
+        monitoring. The design provides immediate visual feedback on system status
+        while offering granular control over data collection and visualization.
+
+        Layout structure:
+        - Header with application title
+        - Top control row: Connection status, Buffer statistics, Recording controls
+        - Second control row: Data collection controls, View controls, Plot visibility
+        - Main visualization area with multi-sensor plots
+        - Hidden state storage components for callback management
+
+        The layout is designed for both desktop and tablet viewing, with responsive
+        elements that adapt to different screen sizes.
+
+        Note:
+            The layout includes numerous interactive components (buttons, dropdowns,
+            checklists) that are managed through Dash callbacks for real-time updates.
+        """
         self.app.layout = html.Div(
             [
                 html.H1(
@@ -306,7 +389,27 @@ class OscilloscopeApp:
         )
 
     def _setup_callbacks(self) -> None:
-        """Setup Dash callbacks."""
+        """Setup comprehensive Dash callbacks for real-time interface updates.
+
+        This method registers all the callback functions that handle user interactions
+        and automatic UI updates. The callback system handles complex state management
+        across multiple UI components while maintaining responsive performance.
+
+        Callback categories:
+        1. **Main update callback**: Handles real-time plot updates, status displays,
+           and button state management (runs at configured FPS)
+        2. **Recording callbacks**: Handle recording start/stop user interactions
+        3. **Collection callbacks**: Handle data collection start/pause user interactions
+
+        The implementation uses Dash's dependency injection system to efficiently
+        update only the UI components that need refreshing, minimizing browser
+        rendering overhead.
+
+        Note:
+            Callbacks include comprehensive error handling and logging to support
+            debugging in production deployments. State management ensures UI
+            consistency even during error conditions.
+        """
 
         @self.app.callback(  # type: ignore
             [
@@ -702,7 +805,34 @@ class OscilloscopeApp:
             return "idle"
 
     def _data_collection_worker(self) -> None:
-        """Background worker to collect data from the data source with retry logic."""
+        """Background worker managing robust data collection with comprehensive retry logic.
+
+        This method runs in a dedicated thread with its own asyncio event loop,
+        handling all BLE communication asynchronously. The implementation provides
+        sophisticated error handling and retry mechanisms designed for the inherent
+        instability of BLE connections.
+
+        Key features:
+        1. **Exponential backoff retry**: Multiple retry attempts with increasing
+           delays prevent overwhelming failed connections.
+        2. **Comprehensive error classification**: Different error types get
+           specific handling and user guidance.
+        3. **Graceful degradation**: Connection failures are logged but don't
+           crash the application or UI.
+        4. **Resource management**: Proper cleanup of asyncio resources and
+           data source connections.
+        5. **User feedback**: Regular progress logging helps users understand
+           system status during challenging connection scenarios.
+
+        The worker handles the complete BLE lifecycle: device discovery,
+        connection establishment, data streaming, error recovery, and cleanup.
+        It's designed to run continuously until explicitly stopped by the UI.
+
+        Note:
+            This method creates and manages its own asyncio event loop to avoid
+            conflicts with Dash's event loop. All BLE operations are async to
+            prevent blocking the data stream during I/O operations.
+        """
 
         async def collect_data_with_retry() -> None:
             retry_count = 0
@@ -803,7 +933,20 @@ class OscilloscopeApp:
             self._loop.close()
 
     def start_data_collection(self) -> None:
-        """Start background data collection."""
+        """Start background data collection thread with proper lifecycle management.
+
+        This method initializes and starts the background worker thread responsible
+        for all data collection operations. The implementation ensures only one
+        data collection thread runs at a time and properly handles thread lifecycle.
+
+        The background thread is marked as daemon to ensure clean application
+        shutdown even if the thread is still running when the main process exits.
+
+        Note:
+            This method is idempotent - calling it multiple times won't create
+            multiple threads if one is already running. The existing thread
+            continues operation.
+        """
         if self._data_thread is None or not self._data_thread.is_alive():
             self._stop_event.clear()
             self._data_thread = threading.Thread(
@@ -812,7 +955,21 @@ class OscilloscopeApp:
             self._data_thread.start()
 
     def stop_data_collection(self) -> None:
-        """Stop background data collection."""
+        """Stop background data collection with graceful shutdown and cleanup.
+
+        This method coordinates the shutdown of all background data collection
+        operations, including thread termination and asyncio event loop cleanup.
+        The implementation provides reasonable timeout values to ensure responsive
+        shutdown while allowing ongoing operations to complete cleanly.
+
+        Cleanup is comprehensive - both the worker thread and its associated
+        asyncio event loop are properly terminated to prevent resource leaks.
+
+        Note:
+            If the worker thread doesn't respond to shutdown requests within the
+            timeout period, it's left running as a daemon thread that will be
+            terminated when the main process exits.
+        """
         print("🛑 Stopping data collection...")
         self._stop_event.set()
 
@@ -836,7 +993,26 @@ class OscilloscopeApp:
     def run(
         self, host: str = "127.0.0.1", port: int = 8050, debug: bool = False
     ) -> None:
-        """Run the Dash application."""
+        """Start the complete oscilloscope application with automatic data collection.
+
+        This method starts both the background data collection system and the
+        Dash web server, providing a complete sensor monitoring solution.
+        The implementation ensures proper cleanup even if the application is
+        interrupted.
+
+        Args:
+            host: Network interface to bind the web server. Default "127.0.0.1"
+                restricts access to localhost. Use "0.0.0.0" for network access.
+            port: TCP port for the web server. Default 8050 is standard for Dash.
+                Change if port conflicts occur.
+            debug: Enable Dash debug mode with hot reloading and detailed error
+                messages. Should be False for production use.
+
+        Note:
+            The application runs indefinitely until interrupted (Ctrl+C) or
+            terminated. Data collection stops automatically when the web server
+            shuts down, ensuring proper resource cleanup.
+        """
         self.start_data_collection()
         try:
             self.app.run(host=host, port=port, debug=debug)
