@@ -18,7 +18,19 @@ This document contains critical information about working with this codebase. Fo
    - Follow existing patterns exactly
    - Line length: 88 chars maximum
 
-3. Testing Requirements
+3. Documentation Standards
+   - Style: Google-style docstrings only
+   - Language: English only
+   - Content requirements:
+     - What the code does (functionality)
+     - Why it was implemented this way (design rationale)
+     - Implementation intent and special considerations
+     - Args, Returns, Raises, Yields sections as applicable
+   - Coverage: All public functions, classes, and methods
+   - Private functions: Add docstrings for complex implementations
+   - Translation: Convert all Japanese comments to English docstrings
+
+4. Testing Requirements
    - Framework: `uv run --frozen pytest`
    - Async testing: use anyio, not asyncio
    - Coverage: test edge cases and errors
