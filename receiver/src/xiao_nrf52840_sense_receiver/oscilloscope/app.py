@@ -68,7 +68,7 @@ class OscilloscopeApp:
     """
 
     def __init__(
-        self, data_source: DataSource, buffer_size: int = 1000, update_rate: int = 15
+        self, data_source: DataSource, buffer_size: int = 1000, update_rate: int = 10
     ):
         """Initialize oscilloscope application with data source and performance parameters.
 
@@ -505,11 +505,13 @@ class OscilloscopeApp:
                 )
 
             # Create multi-sensor plot layout with new parameters
+            # 軽量化: 表示点数の上限キャップ（既定400）を適用
             multi_fig = create_multi_plot_layout(
                 data,
                 time_window_seconds=time_window,
                 visible_plots=visible_plots,
                 auto_scale=auto_scale,
+                max_points_cap=400,
             )
 
             # Debug: Log connection status periodically
