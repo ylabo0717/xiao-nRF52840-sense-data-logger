@@ -42,6 +42,11 @@ extern TwoWire Wire1;
 static const uint32_t BLE_BODY_TIMEOUT_MS = 600; // Body transmission allowance (future extension, currently unused)
 static const uint32_t BLE_LF_TIMEOUT_MS   = 100; // LF transmission allowance
 static const uint32_t BLE_BODY_SLICE_MS   = 120; // Time budget for single transmission attempt
+static const uint32_t BLE_TX_INTERVAL_MS  = 40;  // Target BLE CSV send interval (~25Hz)
+static const uint32_t MAIN_LOOP_DELAY_MS  = 10;  // Main loop cadence (~100Hz)
+// Batch policy: how many CSV lines to pack per BLE notification body.
+// We pack 2 lines separated by a single LF, and append one final LF via existing logic => "L1\nL2\n".
+static const uint8_t  BLE_LINES_PER_NOTIFICATION = 2;
 
 /**
  * @brief Attempts to write as much data as possible within the given time budget
@@ -414,26 +419,82 @@ void loop() {
   // BLE throttled to approximately 25Hz considering bandwidth
   static uint32_t lastBle = 0;
   // Maintain pending state (unsent body) and continue transmission in next loop
-  static char     blePending[192];
+  static char     blePending[512]; // Two lines + separator comfortably fit
   static int      blePendLen = -1; // <0: empty, >=0: valid length
   static int      blePendPos = 0;  // Bytes already sent
+  // FIFO queue for pending BLE lines (ensures no duplicates across intervals)
+  static const int BLE_QUEUE_CAPACITY = 8;
+  static char  bleQueue[BLE_QUEUE_CAPACITY][192];
+  static int   bleQLen[BLE_QUEUE_CAPACITY];
+  static int   bleQHead = 0; // pop index
+  static int   bleQTail = 0; // push index
+  auto bleQueueIsEmpty = [&]() -> bool { return bleQHead == bleQTail; };
+  auto bleQueueIsFull  = [&]() -> bool { return ((bleQTail + 1) % BLE_QUEUE_CAPACITY) == bleQHead; };
+  auto bleQueuePush = [&](const char* src, int n) {
+    if (n <= 0) return;
+    if (bleQueueIsFull()) {
+      // drop oldest to keep latest data
+      bleQHead = (bleQHead + 1) % BLE_QUEUE_CAPACITY;
+    }
+    int idx = bleQTail;
+    if (n > (int)sizeof(bleQueue[0])) n = sizeof(bleQueue[0]);
+    memcpy(bleQueue[idx], src, (size_t)n);
+    bleQLen[idx] = n;
+    bleQTail = (bleQTail + 1) % BLE_QUEUE_CAPACITY;
+  };
+  auto bleQueuePop = [&]() -> int {
+    if (bleQueueIsEmpty()) return -1;
+    int idx = bleQHead;
+    bleQHead = (bleQHead + 1) % BLE_QUEUE_CAPACITY;
+    return idx;
+  };
+
+  // Enqueue the newly formatted line each loop; Serial出力は従来通り即時
+  bleQueuePush(line, linelen);
 
   // Handle connection state changes (discard pending on disconnect)
   bool conn = Bluefruit.connected();
   if (conn != lastConn) {
   lastConn = conn;
-    if (!conn) { blePendLen = -1; blePendPos = 0; }
+    if (!conn) {
+      // On disconnect, drop pending body and clear FIFO to avoid stale backlog
+      blePendLen = -1; blePendPos = 0;
+      bleQHead = bleQTail = 0;
+    }
   }
 
-  if (conn && (now - lastBle >= 100)) { // Relax transmission interval to 100ms
+  if (conn && (now - lastBle >= BLE_TX_INTERVAL_MS)) { // Transmission interval ~40ms (about 25Hz)
     lastBle = now;
-    // Can start new line only when not pending. During pending, continue from where left off.
-  if (blePendLen < 0) {
-      // Register current line as pending
-      if (linelen > (int)sizeof(blePending)) linelen = sizeof(blePending);
-      memcpy(blePending, line, (size_t)linelen);
-      blePendLen = linelen;
-      blePendPos = 0;
+    // Can start new body only when not pending. During pending, continue from where left off.
+    if (blePendLen < 0) {
+      // Build a body by popping up to BLE_LINES_PER_NOTIFICATION lines from FIFO.
+      // Concatenate with single LF between lines (no trailing LF; it will be sent after body).
+      int built = 0;
+      int pos = 0;
+      int lines = 0;
+      while (lines < BLE_LINES_PER_NOTIFICATION && !bleQueueIsEmpty()) {
+        int idx = bleQueuePop();
+        if (idx < 0) break;
+        int n = bleQLen[idx];
+        int rem = (int)sizeof(blePending) - pos;
+        if (n > rem) n = rem;
+        if (n > 0) {
+          memcpy(blePending + pos, bleQueue[idx], (size_t)n);
+          pos += n;
+          built = pos;
+        }
+        lines++;
+        if (lines < BLE_LINES_PER_NOTIFICATION && !bleQueueIsEmpty()) {
+          if (pos < (int)sizeof(blePending)) {
+            blePending[pos++] = '\n';
+            built = pos;
+          }
+        }
+      }
+      if (built > 0) {
+        blePendLen = built;
+        blePendPos = 0;
+      }
     }
 
     // Send unsent portion
@@ -470,5 +531,5 @@ void loop() {
     }
   }
 
-  delay(10); // ~100Hz
+  delay(MAIN_LOOP_DELAY_MS); // ~100Hz
 }
