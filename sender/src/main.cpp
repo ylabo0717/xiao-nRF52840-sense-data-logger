@@ -41,9 +41,12 @@ extern TwoWire Wire1;
 // Returns false if unable to send within timeoutMs (for decisions like skipping newlines).
 static const uint32_t BLE_BODY_TIMEOUT_MS = 600; // Body transmission allowance (future extension, currently unused)
 static const uint32_t BLE_LF_TIMEOUT_MS   = 100; // LF transmission allowance
-static const uint32_t BLE_BODY_SLICE_MS   = 120; // Time budget for single transmission attempt
+// Keep BLE write slices short so sampling stays on schedule
+static const uint32_t BLE_BODY_SLICE_MS   = 15;  // Time budget for single transmission attempt
 static const uint32_t BLE_TX_INTERVAL_MS  = 40;  // Target BLE CSV send interval (~25Hz)
-static const uint32_t MAIN_LOOP_DELAY_MS  = 10;  // Main loop cadence (~100Hz)
+// Fixed-period sampling (decoupled from BLE): e.g., 20ms => 50Hz sampling
+static const uint32_t SAMPLE_INTERVAL_MS  = 20;  // Sensor sampling interval
+static const uint32_t MAIN_LOOP_DELAY_MS  = 1;   // Keep loop responsive for scheduling
 // Batch policy: how many CSV lines to pack per BLE notification body.
 // We pack 2 lines separated by a single LF, and append one final LF via existing logic => "L1\nL2\n".
 static const uint8_t  BLE_LINES_PER_NOTIFICATION = 2;
@@ -390,31 +393,37 @@ void loop() {
     return;
   }
 
-  float ax = gImu->readFloatAccelX();
-  float ay = gImu->readFloatAccelY();
-  float az = gImu->readFloatAccelZ();
-  float gx_dps = gImu->readFloatGyroX();
-  float gy_dps = gImu->readFloatGyroY();
-  float gz_dps = gImu->readFloatGyroZ();
-  float tC = gImu->readTempC();
-
-  // Calculate RMS from PDM samples equivalent to 10ms (returns -1 if insufficient)
-  float rms = -1.0f;
-  (void)pdmConsumeRMS(PDM_FRAME_SAMPLES, rms);
-
-  // Format line and transmit to each output destination
+  // --- Fixed-period sampling pipeline -------------------------------------
+  // Sample only when the sampling period elapses; BLE send happens independently below.
+  static uint32_t lastSample = 0;
+  bool producedSample = false;
   char line[192];
-  int linelen = formatCsvLine(line, sizeof(line), (unsigned long)millis(),
-                              ax, ay, az, gx_dps, gy_dps, gz_dps, tC, rms);
-  if (linelen < 0) {
-    // Skip on format failure
-    delay(10);
-    return;
-  }
+  int  linelen = -1;
+  if (now - lastSample >= SAMPLE_INTERVAL_MS) {
+    // Keep phase by increment to reduce drift; if system lags, catch up by one interval only
+    lastSample += SAMPLE_INTERVAL_MS;
 
-  // Output to Serial every time (~100Hz)
-  Serial.write((const uint8_t*)line, (size_t)linelen);
-  Serial.write((const uint8_t*)"\r\n", 2);
+    float ax = gImu->readFloatAccelX();
+    float ay = gImu->readFloatAccelY();
+    float az = gImu->readFloatAccelZ();
+    float gx_dps = gImu->readFloatGyroX();
+    float gy_dps = gImu->readFloatGyroY();
+    float gz_dps = gImu->readFloatGyroZ();
+    float tC = gImu->readTempC();
+
+    // Calculate RMS from PDM samples equivalent to 10ms (returns false if insufficient)
+    float rms = -1.0f;
+    (void)pdmConsumeRMS(PDM_FRAME_SAMPLES, rms);
+
+    linelen = formatCsvLine(line, sizeof(line), (unsigned long)millis(),
+                            ax, ay, az, gx_dps, gy_dps, gz_dps, tC, rms);
+    if (linelen >= 0) {
+      // Output to Serial at sampling rate
+      Serial.write((const uint8_t*)line, (size_t)linelen);
+      Serial.write((const uint8_t*)"\r\n", 2);
+      producedSample = true;
+    }
+  }
 
   // BLE throttled to approximately 25Hz considering bandwidth
   static uint32_t lastBle = 0;
@@ -423,7 +432,7 @@ void loop() {
   static int      blePendLen = -1; // <0: empty, >=0: valid length
   static int      blePendPos = 0;  // Bytes already sent
   // FIFO queue for pending BLE lines (ensures no duplicates across intervals)
-  static const int BLE_QUEUE_CAPACITY = 8;
+  static const int BLE_QUEUE_CAPACITY = 32;
   static char  bleQueue[BLE_QUEUE_CAPACITY][192];
   static int   bleQLen[BLE_QUEUE_CAPACITY];
   static int   bleQHead = 0; // pop index
@@ -449,8 +458,10 @@ void loop() {
     return idx;
   };
 
-  // Enqueue the newly formatted line each loop; Serial出力は従来通り即時
-  bleQueuePush(line, linelen);
+  // Enqueue only when a new sample is produced (decoupled from BLE timing)
+  if (producedSample && linelen > 0) {
+    bleQueuePush(line, linelen);
+  }
 
   // Handle connection state changes (discard pending on disconnect)
   bool conn = Bluefruit.connected();
