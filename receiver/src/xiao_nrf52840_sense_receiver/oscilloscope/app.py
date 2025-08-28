@@ -341,7 +341,7 @@ class OscilloscopeApp:
                                                                 {"label": "x10", "value": 10},
                                                                 {"label": "x20", "value": 20},
                                                             ],
-                                                            value=1,
+                                                            value=4,
                                                             style={
                                                                 "marginBottom": "10px",
                                                                 "fontSize": "12px",

@@ -195,7 +195,7 @@ def create_temperature_plot(
     temp_data = [row.tempC for row in data]
 
     fig.add_trace(
-        go.Scatter(
+        go.Scattergl(
             x=timestamps,
             y=temp_data,
             mode="lines",
@@ -271,7 +271,7 @@ def create_audio_plot(data: List[ImuRow], title: str = "Audio RMS") -> go.Figure
         )
     else:
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=audio_data,
                 mode="lines",
