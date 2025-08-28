@@ -301,7 +301,7 @@ class OscilloscopeApp:
                                                 {"label": "30 seconds", "value": 30},
                                                 {"label": "60 seconds", "value": 60},
                                             ],
-                                            value=20,  # Default to 20 seconds (500 samples / 25Hz)
+                                            value=5,  # Default to 5 seconds (~125 samples @ 25Hz)
                                             style={
                                                 "marginBottom": "10px",
                                                 "fontSize": "12px",
@@ -487,7 +487,7 @@ class OscilloscopeApp:
         ) -> Tuple[Any, ...]:
             # Provide default values for optional inputs
             if time_window is None:
-                time_window = 20
+                time_window = 5
             if visible_plots is None:
                 visible_plots = ["accel", "gyro", "temp", "audio"]
             if auto_scale_list is None:

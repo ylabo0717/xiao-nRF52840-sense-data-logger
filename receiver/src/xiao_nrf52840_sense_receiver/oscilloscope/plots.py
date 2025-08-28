@@ -309,7 +309,7 @@ def create_audio_plot(data: List[ImuRow], title: str = "Audio RMS") -> go.Figure
 
 def create_multi_plot_layout(
     data: List[ImuRow],
-    time_window_seconds: int = 20,
+    time_window_seconds: int = 5,
     visible_plots: List[str] = ["accel", "gyro", "temp", "audio"],
     auto_scale: bool = False,
     *,
@@ -327,8 +327,8 @@ def create_multi_plot_layout(
        of which sensors are enabled, making it easy to locate specific data types.
 
     2. **Time-windowed display**: Limits data volume for performance while showing
-       sufficient history for trend analysis. Default 20 seconds provides good
-       context without overwhelming detail.
+       sufficient history for trend analysis. Default 5 seconds provides a responsive
+       view while reducing render cost.
 
     3. **Intelligent Y-axis scaling**: Combines fixed ranges for consistency with
        auto-scaling for detailed analysis. Fixed ranges help users quickly assess
@@ -344,7 +344,7 @@ def create_multi_plot_layout(
         data: List of IMU sensor readings ordered chronologically. Empty list
             results in "No data" placeholders in all subplots.
         time_window_seconds: Duration of data to display. 0 means show all data.
-            Default 20s provides ~500 samples at 25Hz, good for trend analysis.
+            Default 5s provides ~125 samples at 25Hz for responsive updates.
         visible_plots: List of sensor types to display. Valid options:
             ["accel", "gyro", "temp", "audio"]. Hidden plots are made invisible
             but layout positions remain consistent.
