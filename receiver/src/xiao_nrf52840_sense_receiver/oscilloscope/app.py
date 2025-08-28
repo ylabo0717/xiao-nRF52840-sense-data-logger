@@ -317,7 +317,7 @@ class OscilloscopeApp:
                                                             "value": "auto",
                                                         }
                                                     ],
-                                                    value=[],  # Start with auto-scale off
+                                                    value=["auto"],  # Start with auto-scale ON
                                                     style={"fontSize": "12px"},
                                                 ),
                                                 html.Div(
@@ -491,7 +491,7 @@ class OscilloscopeApp:
             if visible_plots is None:
                 visible_plots = ["accel", "gyro", "temp", "audio"]
             if auto_scale_list is None:
-                auto_scale_list = []
+                auto_scale_list = ["auto"]
             if not decimation_factor:
                 decimation_factor = 1
 
