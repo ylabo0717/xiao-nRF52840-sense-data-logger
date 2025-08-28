@@ -320,6 +320,43 @@ class OscilloscopeApp:
                                                     value=[],  # Start with auto-scale off
                                                     style={"fontSize": "12px"},
                                                 ),
+                                                html.Div(
+                                                    [
+                                                        html.Label(
+                                                            "Decimation (display only):",
+                                                            style={
+                                                                "fontSize": "12px",
+                                                                "marginTop": "8px",
+                                                                "marginBottom": "5px",
+                                                            },
+                                                        ),
+                                                        dcc.Dropdown(
+                                                            id="decimation-dropdown",
+                                                            options=[
+                                                                {"label": "x1 (no skip)", "value": 1},
+                                                                {"label": "x2", "value": 2},
+                                                                {"label": "x3", "value": 3},
+                                                                {"label": "x4", "value": 4},
+                                                                {"label": "x5", "value": 5},
+                                                                {"label": "x10", "value": 10},
+                                                                {"label": "x20", "value": 20},
+                                                            ],
+                                                            value=1,
+                                                            style={
+                                                                "marginBottom": "10px",
+                                                                "fontSize": "12px",
+                                                            },
+                                                            clearable=False,
+                                                        ),
+                                                        html.Div(
+                                                            "Rendering will down-sample points for plots only; acquisition and recording are unaffected.",
+                                                            style={
+                                                                "fontSize": "11px",
+                                                                "color": "#666",
+                                                            },
+                                                        ),
+                                                    ]
+                                                ),
                                             ],
                                         ),
                                     ],
@@ -438,6 +475,7 @@ class OscilloscopeApp:
                 Input("time-window-dropdown", "value"),
                 Input("plot-visibility-checklist", "value"),
                 Input("auto-scale-checklist", "value"),
+                Input("decimation-dropdown", "value"),
             ],
         )
         def update_plots(
@@ -445,6 +483,7 @@ class OscilloscopeApp:
             time_window: int,
             visible_plots: List[str],
             auto_scale_list: List[str],
+            decimation_factor: Optional[int],
         ) -> Tuple[Any, ...]:
             # Provide default values for optional inputs
             if time_window is None:
@@ -453,6 +492,8 @@ class OscilloscopeApp:
                 visible_plots = ["accel", "gyro", "temp", "audio"]
             if auto_scale_list is None:
                 auto_scale_list = []
+            if not decimation_factor:
+                decimation_factor = 1
 
             # Get recent data based on time window
             if time_window and time_window > 0:
@@ -461,6 +502,19 @@ class OscilloscopeApp:
                 data = self.buffer.get_recent(max_samples)
             else:
                 data = self.buffer.get_recent(500)  # Default
+
+            raw_points = len(data)
+
+            # Decimate for rendering only (keep latest sample included)
+            if decimation_factor > 1 and raw_points > 2:
+                step = decimation_factor
+                # Choose offset so the last element is retained
+                offset = (raw_points - 1) % step
+                decimated = data[offset::step]
+                # Safety: ensure last sample is included
+                if decimated and decimated[-1] is not data[-1]:
+                    decimated = decimated + [data[-1]]
+                data = decimated
 
             stats = self.buffer.stats
             auto_scale = "auto" in auto_scale_list if auto_scale_list else False
@@ -553,7 +607,7 @@ class OscilloscopeApp:
             )
 
             # Buffer statistics
-            display_time = len(data) / 25.0 if data else 0
+            display_time = (raw_points / 25.0) if raw_points else 0
             buffer_info = html.Div(
                 [
                     html.P(
@@ -562,13 +616,16 @@ class OscilloscopeApp:
                         style={"margin": "5px 0"},
                     ),
                     html.P(
-                        f"Displaying: {len(data)} data points "
-                        f"({display_time:.1f}s @ 25Hz)",
+                        f"Displaying: {len(data)} points (from {raw_points} samples, x{decimation_factor})",
                         style={"margin": "5px 0"},
                     ),
                     html.P(
                         f"Time Window: {time_window}s",
                         style={"margin": "5px 0"},
+                    ),
+                    html.P(
+                        f"Approx. Window Coverage: {display_time:.1f}s @ 25Hz",
+                        style={"margin": "5px 0", "color": "#666", "fontSize": "12px"},
                     ),
                 ]
             )
