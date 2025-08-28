@@ -222,7 +222,7 @@ class RecordingWorkerThread(threading.Thread):
     """Dedicated thread for file writing operations.
 
     Uses timer-based polling to avoid blocking data collection.
-    Polls buffer every 20ms (50Hz) for new data and writes to file.
+    Polls buffer every ~40ms (25Hz) for new data and writes to file.
     """
 
     def __init__(self, buffer: DataBuffer, file_writer: RecordFileWriter):
@@ -260,8 +260,10 @@ class RecordingWorkerThread(threading.Thread):
                         if len(new_samples) > 0:
                             logger.debug(f"Recorded {len(new_samples)} samples")
 
-                    # Timer-based polling every 20ms (50Hz)
-                    self._stop_event.wait(0.02)
+                    # Timer-based polling: baseline 40ms (25Hz).
+                    # If no new data, sleep slightly longer to reduce unnecessary wakeups.
+                    sleep_sec = 0.04 if new_samples else 0.06
+                    self._stop_event.wait(sleep_sec)
 
                 except Exception as e:
                     logger.error(f"Error in recording worker loop: {e}")

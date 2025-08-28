@@ -2,7 +2,7 @@
 Plot components and layouts for oscilloscope visualization.
 """
 
-from typing import List
+from typing import List, Optional
 
 import plotly.graph_objects as go  # type: ignore
 from plotly.subplots import make_subplots  # type: ignore
@@ -312,6 +312,8 @@ def create_multi_plot_layout(
     time_window_seconds: int = 20,
     visible_plots: List[str] = ["accel", "gyro", "temp", "audio"],
     auto_scale: bool = False,
+    *,
+    max_points_cap: Optional[int] = None,
 ) -> go.Figure:
     """Create comprehensive 2x2 sensor data visualization with intelligent scaling.
 
@@ -365,10 +367,12 @@ def create_multi_plot_layout(
         Performance is optimized for real-time updates with large datasets by
         limiting sample count based on time window and expected data rates.
     """
-    # Filter data based on time window
+    # Filter data based on time window and apply optional cap for performance
     if data and time_window_seconds > 0:
         sample_rate = 25  # Hz, approximate
         max_samples = int(time_window_seconds * sample_rate)
+        if max_points_cap is not None:
+            max_samples = min(max_samples, max_points_cap)
         if len(data) > max_samples:
             data = data[-max_samples:]
 
@@ -417,8 +421,9 @@ def create_multi_plot_layout(
         ay_data = [row.ay for row in data]
         az_data = [row.az for row in data]
 
+        # WebGLで描画負荷を軽減
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=ax_data,
                 mode="lines",
@@ -429,7 +434,7 @@ def create_multi_plot_layout(
             col=1,
         )
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=ay_data,
                 mode="lines",
@@ -440,7 +445,7 @@ def create_multi_plot_layout(
             col=1,
         )
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=az_data,
                 mode="lines",
@@ -458,7 +463,7 @@ def create_multi_plot_layout(
         gz_data = [row.gz for row in data]
 
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=gx_data,
                 mode="lines",
@@ -470,7 +475,7 @@ def create_multi_plot_layout(
             col=2,
         )
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=gy_data,
                 mode="lines",
@@ -482,7 +487,7 @@ def create_multi_plot_layout(
             col=2,
         )
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=timestamps,
                 y=gz_data,
                 mode="lines",
@@ -634,6 +639,8 @@ def create_multi_plot_layout(
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=50, r=50, t=80, b=50),
+        # ユーザ操作を保持しつつ頻繁な再レイアウトを抑制
+        uirevision="stable",
     )
 
     return fig
