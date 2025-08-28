@@ -387,9 +387,8 @@ class OscilloscopeApp:
                                     value=[
                                         "accel",
                                         "gyro",
-                                        "temp",
                                         "audio",
-                                    ],  # All visible by default
+                                    ],  # Temperature hidden by default
                                     style={"fontSize": "12px"},
                                 ),
                             ],
@@ -489,7 +488,7 @@ class OscilloscopeApp:
             if time_window is None:
                 time_window = 5
             if visible_plots is None:
-                visible_plots = ["accel", "gyro", "temp", "audio"]
+                visible_plots = ["accel", "gyro", "audio"]
             if auto_scale_list is None:
                 auto_scale_list = ["auto"]
             if not decimation_factor:
